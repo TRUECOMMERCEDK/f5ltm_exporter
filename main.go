@@ -21,9 +21,9 @@ var (
 	release string
 
 	ltmPoolState = prometheus.NewDesc(
-		prometheus.BuildFQName("f5ltm", "", "ltm_pool_state"),
+		prometheus.BuildFQName("f5ltm", "", "pool_state"),
 		"F5 LTM Pool status",
-		[]string{"pool"}, nil,
+		[]string{"pool_name", "node_name"}, nil,
 	)
 )
 
@@ -73,11 +73,11 @@ func (e *Exporter) UpdateMetrics(ch chan<- prometheus.Metric) {
 		switch v.NestedStats.Entries.StatusAvailabilityState.Description {
 		case "available":
 			ch <- prometheus.MustNewConstMetric(
-				ltmPoolState, prometheus.GaugeValue, 1, v.NestedStats.Entries.TmName.Description,
+				ltmPoolState, prometheus.GaugeValue, 1, v.NestedStats.Entries.TmName.Description, e.config.F5Host,
 			)
 		default:
 			ch <- prometheus.MustNewConstMetric(
-				ltmPoolState, prometheus.GaugeValue, 0, v.NestedStats.Entries.TmName.Description,
+				ltmPoolState, prometheus.GaugeValue, 0, v.NestedStats.Entries.TmName.Description, e.config.F5Host,
 			)
 
 		}
@@ -90,7 +90,7 @@ func main() {
 	_ = env.Load()
 
 	host := env.GetStringOrDefault("HOST", "0.0.0.0")
-	port := env.GetIntOrDefault("PORT", 9142)
+	port := env.GetIntOrDefault("PORT", 9143)
 	metricsPath := env.GetStringOrDefault("METRICS_PATH", "/metrics")
 
 	envConfig := config.Config{
@@ -110,7 +110,7 @@ func main() {
 		w.Write([]byte(`<html>
              <head><title>F5 LTM Exporter</title></head>
              <body>
-             <h1>Infra Exporter</h1>
+             <h1>F5 LTM Exporter</h1>
              <p><a href='` + metricsPath + `'>Metrics</a></p>
              </body>
              </html>`))

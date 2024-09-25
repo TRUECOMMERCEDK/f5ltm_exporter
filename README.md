@@ -28,7 +28,7 @@ Development requirements:
 
 ## Enviroment
     HOST                (default binds to 0.0.0.0)
-    PORT                (listening port, default 9142)
+    PORT                (listening port, default 9143)
     METRICS_PATH        (default /metrics)
     F5_USER
     F5_PASS

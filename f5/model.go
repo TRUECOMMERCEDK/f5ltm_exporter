@@ -104,7 +104,7 @@ func (m *Model) Authenticate() (string, error) {
 	var jsonStr = []byte(`{"username":"monitoring", "password":"#TrueCom2024#"}`)
 
 	addr := fmt.Sprintf("%s:%s", m.Host, m.Port)
-	req, err := http.NewRequest("POST", addr+"/mgmt/shared/authn/login", bytes.NewBuffer(jsonStr))
+	req, err := http.NewRequest("POST", "https://"+addr+"/mgmt/shared/authn/login", bytes.NewBuffer(jsonStr))
 	if err != nil {
 		return "", err
 	}
@@ -143,7 +143,7 @@ func (m *Model) GetPoolStats(sessionId string) (PoolStats, error) {
 	client := &http.Client{Transport: tr}
 
 	addr := fmt.Sprintf("%s:%s", m.Host, m.Port)
-	req, err := http.NewRequest("GET", addr+"/mgmt/tm/ltm/pool/stats", nil)
+	req, err := http.NewRequest("GET", "https://"+addr+"/mgmt/tm/ltm/pool/stats", nil)
 	if err != nil {
 		return msg, err
 	}
