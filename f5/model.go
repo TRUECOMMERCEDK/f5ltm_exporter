@@ -101,8 +101,7 @@ func (m *Model) Authenticate() (string, error) {
 
 	client := &http.Client{Transport: tr}
 
-	var jsonStr = []byte(`{"username":"monitoring", "password":"#TrueCom2024#"}`)
-
+	jsonStr, _ := json.Marshal(map[string]string{"username": m.User, "password": m.Pass})
 	addr := fmt.Sprintf("%s:%s", m.Host, m.Port)
 	req, err := http.NewRequest("POST", "https://"+addr+"/mgmt/shared/authn/login", bytes.NewBuffer(jsonStr))
 	if err != nil {
