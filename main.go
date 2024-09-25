@@ -18,8 +18,6 @@ import (
 )
 
 var (
-	release string
-
 	ltmPoolState = prometheus.NewDesc(
 		prometheus.BuildFQName("f5ltm", "", "pool_state"),
 		"F5 LTM Pool status",
