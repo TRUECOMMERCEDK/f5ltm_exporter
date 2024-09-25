@@ -14,6 +14,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"regexp"
 	"strconv"
 )
 
@@ -21,7 +22,7 @@ var (
 	ltmPoolState = prometheus.NewDesc(
 		prometheus.BuildFQName("f5ltm", "", "pool_state"),
 		"F5 LTM Pool status",
-		[]string{"pool_name", "node_name"}, nil,
+		[]string{"pool_name", "node_name", "partition_name"}, nil,
 	)
 )
 
@@ -66,16 +67,20 @@ func (e *Exporter) UpdateMetrics(ch chan<- prometheus.Metric) {
 		os.Exit(1)
 	}
 
+	r, _ := regexp.Compile(`/(.*)/(.*)`)
+
 	for _, v := range PoolStats.Entries {
+
+		res := r.FindStringSubmatch(v.NestedStats.Entries.TmName.Description)
 
 		switch v.NestedStats.Entries.StatusAvailabilityState.Description {
 		case "available":
 			ch <- prometheus.MustNewConstMetric(
-				ltmPoolState, prometheus.GaugeValue, 1, v.NestedStats.Entries.TmName.Description, e.config.F5Host,
+				ltmPoolState, prometheus.GaugeValue, 1, res[2], e.config.F5Host, res[1],
 			)
 		default:
 			ch <- prometheus.MustNewConstMetric(
-				ltmPoolState, prometheus.GaugeValue, 0, v.NestedStats.Entries.TmName.Description, e.config.F5Host,
+				ltmPoolState, prometheus.GaugeValue, 0, res[2], e.config.F5Host, res[1],
 			)
 
 		}
