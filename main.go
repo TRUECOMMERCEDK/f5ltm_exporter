@@ -105,13 +105,16 @@ func main() {
 
 	http.Handle(metricsPath, promhttp.Handler())
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte(`<html>
+		_, err := w.Write([]byte(`<html>
              <head><title>F5 LTM Exporter</title></head>
              <body>
              <h1>F5 LTM Exporter</h1>
              <p><a href='` + metricsPath + `'>Metrics</a></p>
              </body>
              </html>`))
+		if err != nil {
+			return
+		}
 	})
 	slog.Info("F5 Local Traffic Management Device Exporter Started")
 
