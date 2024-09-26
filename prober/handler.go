@@ -19,7 +19,6 @@ func Handler(w http.ResponseWriter, r *http.Request, c config.Config) {
 			Namespace: "f5ltm",
 		},
 		[]string{
-			"node_name",
 			"partition_name",
 			"pool_name",
 		},
@@ -56,9 +55,9 @@ func Handler(w http.ResponseWriter, r *http.Request, c config.Config) {
 
 			switch v.NestedStats.Entries.StatusAvailabilityState.Description {
 			case "available":
-				pingCounter.WithLabelValues(target, res[1], res[2]).Set(1)
+				pingCounter.WithLabelValues(res[1], res[2]).Set(1)
 			default:
-				pingCounter.WithLabelValues(target, res[1], res[2]).Set(0)
+				pingCounter.WithLabelValues(res[1], res[2]).Set(0)
 			}
 
 		}
