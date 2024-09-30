@@ -1,6 +1,7 @@
 package prober
 
 import (
+	"fmt"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/truecommercedk/f5ltm_exporter/config"
@@ -10,7 +11,7 @@ import (
 	"regexp"
 )
 
-func Handler(w http.ResponseWriter, r *http.Request, c config.Config) {
+func Handler(w http.ResponseWriter, r *http.Request, c config.Config, logger *slog.Logger) {
 
 	pingCounter := prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
@@ -28,38 +29,40 @@ func Handler(w http.ResponseWriter, r *http.Request, c config.Config) {
 	registry.MustRegister(pingCounter)
 
 	target := r.URL.Query().Get("target")
-	if target != "" {
+	if target == "" {
+		http.Error(w, fmt.Sprintf("Target parameter is missing"), http.StatusBadRequest)
+		return
+	}
 
-		f5Api := &f5.Model{
-			User: c.F5User,
-			Pass: c.F5Pass,
-			Host: target,
-		}
+	f5Api := &f5.Model{
+		User: c.F5User,
+		Pass: c.F5Pass,
+		Host: target,
+	}
 
-		sessionId, err := f5Api.Authenticate()
-		if err != nil {
-			slog.Error("Unable to authenticate to F5")
-		}
+	sessionId, err := f5Api.Authenticate()
+	if err != nil {
+		http.Error(w, fmt.Sprintf("%s", err), http.StatusBadRequest)
+		return
+	}
 
-		PoolStats, err := f5Api.GetPoolStats(sessionId)
-		if err != nil {
-			slog.Error("Unable to retrieve data from f5")
-			//os.Exit(1)
-		}
+	PoolStats, err := f5Api.GetPoolStats(sessionId)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Error:%s", err), http.StatusBadRequest)
+		return
+	}
 
-		r, _ := regexp.Compile(`/(.*)/(.*)`)
+	result, _ := regexp.Compile(`/(.*)/(.*)`)
 
-		for _, v := range PoolStats.Entries {
+	for _, v := range PoolStats.Entries {
 
-			res := r.FindStringSubmatch(v.NestedStats.Entries.TmName.Description)
+		res := result.FindStringSubmatch(v.NestedStats.Entries.TmName.Description)
 
-			switch v.NestedStats.Entries.StatusAvailabilityState.Description {
-			case "available":
-				pingCounter.WithLabelValues(res[1], res[2]).Set(1)
-			default:
-				pingCounter.WithLabelValues(res[1], res[2]).Set(0)
-			}
-
+		switch v.NestedStats.Entries.StatusAvailabilityState.Description {
+		case "available":
+			pingCounter.WithLabelValues(res[1], res[2]).Set(1)
+		default:
+			pingCounter.WithLabelValues(res[1], res[2]).Set(0)
 		}
 
 	}

@@ -117,7 +117,6 @@ func (m *Model) Authenticate() (string, error) {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != 200 {
-		err := fmt.Errorf("http response error: %v", resp.StatusCode)
 		return "", err
 	}
 
@@ -125,7 +124,6 @@ func (m *Model) Authenticate() (string, error) {
 
 	err = json.Unmarshal(bodyText, &msg)
 	if err != nil {
-		fmt.Println("Unable to unmarshal")
 		return "", err
 	}
 
@@ -156,7 +154,6 @@ func (m *Model) GetPoolStats(sessionId string) (PoolStats, error) {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != 200 {
-		err := fmt.Errorf("http response error: %v", resp.StatusCode)
 		return msg, err
 	}
 

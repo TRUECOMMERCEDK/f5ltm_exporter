@@ -10,11 +10,13 @@ import (
 	"maragu.dev/env"
 	"net"
 	"net/http"
+	"os"
 	"strconv"
 )
 
 func main() {
 
+	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 	_ = env.Load()
 
 	host := env.GetStringOrDefault("HOST", "0.0.0.0")
@@ -28,10 +30,10 @@ func main() {
 	}
 
 	http.HandleFunc("/probe", func(w http.ResponseWriter, r *http.Request) {
-		prober.Handler(w, r, envConfig)
+		prober.Handler(w, r, envConfig, logger)
 	})
 
-	slog.Info("F5 Local Traffic Management Device Exporter Starting")
+	logger.Info("F5 Local Traffic Management Device Exporter Starting", "binding_address", address)
 
 	if err := http.ListenAndServe(address, nil); err != nil {
 		slog.Error("Error starting server")
