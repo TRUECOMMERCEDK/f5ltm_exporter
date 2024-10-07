@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"time"
 )
 
 type Model struct {
@@ -99,7 +100,10 @@ func (m *Model) Authenticate() (string, error) {
 		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
 	}
 
-	client := &http.Client{Transport: tr}
+	client := &http.Client{
+		Transport: tr,
+		Timeout:   10 * time.Second,
+	}
 
 	jsonStr, _ := json.Marshal(map[string]string{"username": m.User, "password": m.Pass})
 	addr := fmt.Sprintf("%s:%s", m.Host, m.Port)
@@ -108,6 +112,7 @@ func (m *Model) Authenticate() (string, error) {
 		return "", err
 	}
 
+	req.Close = true
 	req.Header.Add("Content-Type", "application/json")
 
 	resp, err := client.Do(req)
@@ -137,7 +142,10 @@ func (m *Model) GetPoolStats(sessionId string) (PoolStats, error) {
 		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
 	}
 
-	client := &http.Client{Transport: tr}
+	client := &http.Client{
+		Transport: tr,
+		Timeout:   10 * time.Second,
+	}
 
 	addr := fmt.Sprintf("%s:%s", m.Host, m.Port)
 	req, err := http.NewRequest("GET", "https://"+addr+"/mgmt/tm/ltm/pool/stats", nil)
@@ -145,6 +153,7 @@ func (m *Model) GetPoolStats(sessionId string) (PoolStats, error) {
 		return msg, err
 	}
 
+	req.Close = true
 	req.Header.Add("X-F5-Auth-Token", sessionId)
 
 	resp, err := client.Do(req)
