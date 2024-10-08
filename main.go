@@ -4,8 +4,8 @@
 package main
 
 import (
-	"github.com/truecommercedk/f5ltm_exporter/config"
-	"github.com/truecommercedk/f5ltm_exporter/prober"
+	"f5ltm_exporter/config"
+	"f5ltm_exporter/prober"
 	"log/slog"
 	"maragu.dev/env"
 	"net"

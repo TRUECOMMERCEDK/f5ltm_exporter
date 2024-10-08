@@ -1,11 +1,11 @@
 package prober
 
 import (
+	"f5ltm_exporter/config"
+	"f5ltm_exporter/f5"
 	"fmt"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
-	"github.com/truecommercedk/f5ltm_exporter/config"
-	"github.com/truecommercedk/f5ltm_exporter/f5"
 	"log/slog"
 	"net/http"
 	"regexp"
