@@ -1,6 +1,18 @@
 # f5ltm_exporter
 F5 Local Traffic Management Device Exporter
 
+F5 LTM Exporter is implemented via the multi-target exporter pattern.
+By multi-target exporter pattern we refer to a specific design, in which:
+
+- the exporter will get the target’s metrics via a network protocol.
+- the exporter does not have to run on the machine the metrics are taken from.
+- the exporter gets the targets and a query config string as parameters of Prometheus’ GET request.
+- the exporter subsequently starts the scrape after getting Prometheus’ GET requests and once it is done with scraping.
+
+When the exporter starts the scarape, it is performing following actions:
+- POST /mgmt/shared/authn/login
+- GET /mgmt/tm/ltm/pool/stats
+
 ## Getting Started
 The project is developed in Go (1.23+).\
 The repository is formatted for use in GoLand.
