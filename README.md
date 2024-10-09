@@ -38,14 +38,43 @@ Development requirements:
 * make deploy
 
 
-## Enviroment
+## Environment
     HOST                (default binds to 0.0.0.0)
     PORT                (listening port, default 9143)
     F5_USER
     F5_PASS
 
-## Prometheus configuration
+## Installation
+```console
+sudo useradd --no-create-home --shell /bin/false f5ltmexporter
+sudo mkdir /opt/f5ltm_exporter
+sudo tar -xvf f5ltm_exporter_0.0.2_linux_amd64.tar.gz
+sudo chmod 755 f5ltmexporter
+sudo chown f5ltmexporter:f5ltmexporter /opt/f5ltm_exporter/*
+sudo ln -s /opt/f5ltm_exporter/f5ltmexporterserver /usr/local/bin/f5ltmexporterserver
 
+sudo tee /etc/systemd/system/f5ltm_exporter.service <<EOF
+[Unit]
+Description=Sensor Exporter
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/f5ltm_exporter
+ExecStart=/usr/local/bin/f5ltmexporterserver
+
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+sudo systemctl enable --now f5ltm_exporter.service 
+```
+
+## Prometheus configuration
+```yaml
     - job_name: 'f5ltm_exporter'
       metrics_path: /probe
       static_configs:
@@ -58,3 +87,22 @@ Development requirements:
           target_label: instance
         - target_label: __address__
           replacement: 127.0.0.1:9143
+```
+
+## Filebeat configuration
+```console
+- type: journald
+  enabled: true
+  pipeline: filebeat
+  id: service-f5ltm-exporter
+  include_matches.match:
+    - _SYSTEMD_UNIT=f5ltm_exporter.service
+  fields:
+    type: f5ltm_exporter.server
+
+  parsers:
+    - ndjson:
+      overwrite_keys: true
+      add_error_key: true
+      expand_keys: true
+```
