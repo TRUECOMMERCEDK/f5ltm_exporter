@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/tls"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -122,11 +123,11 @@ func (m *Model) Authenticate() (string, error) {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != 200 {
-		return "", err
+		myError := errors.New("authentication failed")
+		return "", myError
 	}
 
 	bodyText, err := io.ReadAll(resp.Body)
-
 	err = json.Unmarshal(bodyText, &msg)
 	if err != nil {
 		return "", err

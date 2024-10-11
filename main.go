@@ -33,10 +33,10 @@ func main() {
 		prober.Handler(w, r, envConfig, logger)
 	})
 
-	logger.Info("F5 Local Traffic Management Device Exporter Starting", "binding_address", address)
+	logger.Info("F5 Exporter Starting", "binding_address", address)
 
 	if err := http.ListenAndServe(address, nil); err != nil {
-		slog.Error("Error starting server")
+		logger.Error("F5 Exporter Start failed", "binding_address", address)
 	}
 
 }
