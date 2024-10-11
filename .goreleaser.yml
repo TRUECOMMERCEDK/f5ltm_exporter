@@ -9,3 +9,4 @@ builds:
     id: "f5ltm_exporter"
     dir: .
     main: ./
+    binary: f5ltmexporterserver
