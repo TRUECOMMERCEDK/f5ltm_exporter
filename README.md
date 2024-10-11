@@ -48,6 +48,7 @@ Development requirements:
 ```console
 sudo useradd --no-create-home --shell /bin/false f5ltmexporter
 sudo mkdir /opt/f5ltm_exporter
+cd /opt/f5ltm_exporter
 sudo tar -xvf f5ltm_exporter_0.0.2_linux_amd64.tar.gz
 sudo chmod 755 f5ltmexporterserver
 sudo chown f5ltmexporter:f5ltmexporter /opt/f5ltm_exporter/*
@@ -55,7 +56,7 @@ sudo ln -s /opt/f5ltm_exporter/f5ltmexporterserver /usr/local/bin/f5ltmexporters
 
 sudo tee /etc/systemd/system/f5ltm_exporter.service <<EOF
 [Unit]
-Description=Sensor Exporter
+Description=F5 Exporter
 Wants=network-online.target
 After=network-online.target
 
