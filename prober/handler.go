@@ -28,8 +28,47 @@ func Handler(w http.ResponseWriter, r *http.Request, c config.Config, logger *sl
 		},
 	)
 
+	poolStateActiveMemberCountGauge := prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name:      "pool_members_active_total",
+			Help:      "F5 LTM Pool active members count",
+			Namespace: "f5ltm",
+		},
+		[]string{
+			"partition_name",
+			"pool_name",
+		},
+	)
+
+	poolStateAvailableMemberCountGauge := prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name:      "pool_members_available_total",
+			Help:      "F5 LTM Pool available members count",
+			Namespace: "f5ltm",
+		},
+		[]string{
+			"partition_name",
+			"pool_name",
+		},
+	)
+
+	poolStateMemberCountGauge := prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name:      "pool_members_configured_total",
+			Help:      "F5 LTM Pool configured members count",
+			Namespace: "f5ltm",
+		},
+		[]string{
+			"partition_name",
+			"pool_name",
+		},
+	)
+
 	registry := prometheus.NewRegistry()
 	registry.MustRegister(poolStateGauge)
+	registry.MustRegister(poolStateActiveMemberCountGauge)
+	registry.MustRegister(poolStateAvailableMemberCountGauge)
+	registry.MustRegister(poolStateMemberCountGauge)
 
 	target := r.URL.Query().Get("target")
 	if target == "" {
@@ -71,6 +110,9 @@ func Handler(w http.ResponseWriter, r *http.Request, c config.Config, logger *sl
 			poolStateGauge.WithLabelValues(res[1], res[2]).Set(0)
 		}
 
+		poolStateActiveMemberCountGauge.WithLabelValues(res[1], res[2]).Set(float64(v.NestedStats.Entries.ActiveMemberCnt.Value))
+		poolStateAvailableMemberCountGauge.WithLabelValues(res[1], res[2]).Set(float64(v.NestedStats.Entries.AvailableMemberCnt.Value))
+		poolStateMemberCountGauge.WithLabelValues(res[1], res[2]).Set(float64(v.NestedStats.Entries.MemberCnt.Value))
 	}
 
 	logger.Info("F5 Device Scrape", slog.Float64("request_duration_seconds", time.Since(start).Seconds()))
