@@ -64,11 +64,20 @@ func Handler(w http.ResponseWriter, r *http.Request, c config.Config, logger *sl
 		},
 	)
 
+	syncStatusGauge := prometheus.NewGauge(
+		prometheus.GaugeOpts{
+			Name:      "sync_status",
+			Help:      "F5 sync status",
+			Namespace: "f5ltm",
+		},
+	)
+
 	registry := prometheus.NewRegistry()
 	registry.MustRegister(poolStateGauge)
 	registry.MustRegister(poolStateActiveMemberCountGauge)
 	registry.MustRegister(poolStateAvailableMemberCountGauge)
 	registry.MustRegister(poolStateMemberCountGauge)
+	registry.MustRegister(syncStatusGauge)
 
 	target := r.URL.Query().Get("target")
 	if target == "" {
@@ -114,6 +123,15 @@ func Handler(w http.ResponseWriter, r *http.Request, c config.Config, logger *sl
 		poolStateAvailableMemberCountGauge.WithLabelValues(res[1], res[2]).Set(float64(v.NestedStats.Entries.AvailableMemberCnt.Value))
 		poolStateMemberCountGauge.WithLabelValues(res[1], res[2]).Set(float64(v.NestedStats.Entries.MemberCnt.Value))
 	}
+
+	SyncStats, err := f5Api.GetSyncStatus(sessionId)
+	if err != nil {
+		logger.Error("F5 Device Scrape", slog.Float64("request_duration_seconds", time.Since(start).Seconds()), slog.Any("err_msg", err))
+		http.Error(w, fmt.Sprintf("Error:%s", err), http.StatusBadRequest)
+		return
+	}
+
+	syncStatusGauge.Set(float64(SyncStats))
 
 	logger.Info("F5 Device Scrape", slog.Float64("request_duration_seconds", time.Since(start).Seconds()))
 	h := promhttp.HandlerFor(registry, promhttp.HandlerOpts{})

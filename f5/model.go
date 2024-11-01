@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/tidwall/gjson"
 	"io"
 	"net/http"
 	"time"
@@ -176,4 +177,49 @@ func (m *Model) GetPoolStats(sessionId string) (PoolStats, error) {
 	}
 
 	return msg, nil
+}
+
+func (m *Model) GetSyncStatus(sessionId string) (int, error) {
+
+	tr := &http.Transport{
+		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+	}
+
+	client := &http.Client{
+		Transport: tr,
+		Timeout:   10 * time.Second,
+	}
+
+	addr := fmt.Sprintf("%s:%s", m.Host, m.Port)
+	req, err := http.NewRequest("GET", "https://"+addr+"/mgmt/tm/cm/sync-status", nil)
+	if err != nil {
+		return 0, err
+	}
+
+	req.Close = true
+	req.Header.Add("X-F5-Auth-Token", sessionId)
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return 0, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		return 0, err
+	}
+
+	bodyText, err := io.ReadAll(resp.Body)
+
+	syncStatus := gjson.Get(string(bodyText), "entries.https://localhost/mgmt/tm/cm/sync-status/0.nestedStats.entries.status.description")
+
+	var status int
+	switch syncStatus.String() {
+	case "In Sync":
+		status = 1
+	default:
+		status = 0
+	}
+
+	return status, nil
 }
