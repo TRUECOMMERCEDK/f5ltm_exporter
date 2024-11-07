@@ -28,6 +28,30 @@ func Handler(w http.ResponseWriter, r *http.Request, c config.Config, logger *sl
 		},
 	)
 
+	poolCurrentConnectionsGauge := prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name:      "pool_connections_current",
+			Help:      "F5 LTM Pool current connections",
+			Namespace: "f5ltm",
+		},
+		[]string{
+			"partition_name",
+			"pool_name",
+		},
+	)
+
+	poolTotalConnectionsGauge := prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name:      "pool_connections_total",
+			Help:      "F5 LTM Pool total connections",
+			Namespace: "f5ltm",
+		},
+		[]string{
+			"partition_name",
+			"pool_name",
+		},
+	)
+
 	poolStateActiveMemberCountGauge := prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Name:      "pool_members_active_total",
@@ -74,6 +98,8 @@ func Handler(w http.ResponseWriter, r *http.Request, c config.Config, logger *sl
 
 	registry := prometheus.NewRegistry()
 	registry.MustRegister(poolStateGauge)
+	registry.MustRegister(poolCurrentConnectionsGauge)
+	registry.MustRegister(poolTotalConnectionsGauge)
 	registry.MustRegister(poolStateActiveMemberCountGauge)
 	registry.MustRegister(poolStateAvailableMemberCountGauge)
 	registry.MustRegister(poolStateMemberCountGauge)
@@ -122,6 +148,8 @@ func Handler(w http.ResponseWriter, r *http.Request, c config.Config, logger *sl
 		poolStateActiveMemberCountGauge.WithLabelValues(res[1], res[2]).Set(float64(v.NestedStats.Entries.ActiveMemberCnt.Value))
 		poolStateAvailableMemberCountGauge.WithLabelValues(res[1], res[2]).Set(float64(v.NestedStats.Entries.AvailableMemberCnt.Value))
 		poolStateMemberCountGauge.WithLabelValues(res[1], res[2]).Set(float64(v.NestedStats.Entries.MemberCnt.Value))
+		poolCurrentConnectionsGauge.WithLabelValues(res[1], res[2]).Set(float64(v.NestedStats.Entries.ServersideCurConns.Value))
+		poolTotalConnectionsGauge.WithLabelValues(res[1], res[2]).Set(float64(v.NestedStats.Entries.ServersideTotConns.Value))
 	}
 
 	SyncStats, err := f5Api.GetSyncStatus(sessionId)
