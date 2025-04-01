@@ -12,6 +12,7 @@ By multi-target exporter pattern we refer to a specific design, in which:
 When the exporter starts the scarape, it is performing following actions:
 - POST /mgmt/shared/authn/login
 - GET /mgmt/tm/ltm/pool/stats
+- GET /mgmt/tm/cm/sync-status
 
 ## Exported metrics
 
