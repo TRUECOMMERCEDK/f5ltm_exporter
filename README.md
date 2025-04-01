@@ -50,11 +50,11 @@ Development requirements:
 * make deploy
 
 
-## Environment
+## Environment (.env)
     HOST                (default binds to 0.0.0.0)
     PORT                (listening port, default 9143)
-    F5_USER
-    F5_PASS
+    F5_USER             F5 user with API access
+    F5_PASS             Password for the F5 API user
 
 ## Installation
 ```console
