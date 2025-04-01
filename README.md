@@ -26,7 +26,7 @@ f5ltm_pool_connections_total
 f5ltm_pool_connections_current
 ```
 
-## Getting Started
+## Getting started development
 The project is developed in Go (1.23+).\
 The repository is formatted for use in GoLand.
 
@@ -49,7 +49,6 @@ Development requirements:
 
 ## Push System to repository
 * make deploy
-
 
 ## Environment (.env)
     HOST                (default binds to 0.0.0.0)
