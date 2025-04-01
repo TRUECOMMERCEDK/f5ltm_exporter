@@ -13,6 +13,18 @@ When the exporter starts the scarape, it is performing following actions:
 - POST /mgmt/shared/authn/login
 - GET /mgmt/tm/ltm/pool/stats
 
+## Exported metrics
+
+```console
+f5ltm_sync_status
+f5ltm_pool_state
+f5ltm_pool_members_configured_total
+f5ltm_pool_members_available_total
+f5ltm_pool_members_active_total
+f5ltm_pool_connections_total
+f5ltm_pool_connections_current
+```
+
 ## Getting Started
 The project is developed in Go (1.23+).\
 The repository is formatted for use in GoLand.
