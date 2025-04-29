@@ -64,7 +64,7 @@ cd /opt/f5ltm_exporter
 sudo tar -xvf f5ltm_exporter_0.0.2_linux_amd64.tar.gz
 sudo chmod 755 f5ltmexporterserver
 sudo chown f5ltmexporter:f5ltmexporter /opt/f5ltm_exporter/*
-sudo ln -s /opt/f5ltm_exporter/f5ltmexporterserver /usr/local/bin/f5ltmexporterserver
+sudo ln -s /opt/f5ltm_exporter/f5ltmexporterserver /usr/bin/f5ltmexporterserver
 
 sudo tee /etc/systemd/system/f5ltm_exporter.service <<EOF
 [Unit]
@@ -75,7 +75,7 @@ After=network-online.target
 [Service]
 Type=simple
 WorkingDirectory=/opt/f5ltm_exporter
-ExecStart=/usr/local/bin/f5ltmexporterserver
+ExecStart=/usr/bin/f5ltmexporterserver
 
 Restart=always
 
