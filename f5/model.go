@@ -107,7 +107,7 @@ func (m *Model) Authenticate() (string, error) {
 		Timeout:   10 * time.Second,
 	}
 
-	jsonStr, _ := json.Marshal(map[string]string{"username": m.User, "password": m.Pass})
+	jsonStr, _ := json.Marshal(map[string]string{"username": m.User, "password": m.Pass, "loginProviderName": "tmos"})
 	addr := fmt.Sprintf("%s:%s", m.Host, m.Port)
 	req, err := http.NewRequest("POST", "https://"+addr+"/mgmt/shared/authn/login", bytes.NewBuffer(jsonStr))
 	if err != nil {
