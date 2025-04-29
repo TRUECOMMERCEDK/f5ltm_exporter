@@ -12,8 +12,21 @@ By multi-target exporter pattern we refer to a specific design, in which:
 When the exporter starts the scarape, it is performing following actions:
 - POST /mgmt/shared/authn/login
 - GET /mgmt/tm/ltm/pool/stats
+- GET /mgmt/tm/cm/sync-status
 
-## Getting Started
+## Exported metrics
+
+```console
+f5ltm_sync_status
+f5ltm_pool_state
+f5ltm_pool_members_configured_total
+f5ltm_pool_members_available_total
+f5ltm_pool_members_active_total
+f5ltm_pool_connections_total
+f5ltm_pool_connections_current
+```
+
+## Getting started development
 The project is developed in Go (1.23+).\
 The repository is formatted for use in GoLand.
 
@@ -37,12 +50,11 @@ Development requirements:
 ## Push System to repository
 * make deploy
 
-
-## Environment
+## Environment (.env)
     HOST                (default binds to 0.0.0.0)
     PORT                (listening port, default 9143)
-    F5_USER
-    F5_PASS
+    F5_USER             F5 user with API access
+    F5_PASS             Password for the F5 API user
 
 ## Installation
 ```console
@@ -52,7 +64,7 @@ cd /opt/f5ltm_exporter
 sudo tar -xvf f5ltm_exporter_0.0.2_linux_amd64.tar.gz
 sudo chmod 755 f5ltmexporterserver
 sudo chown f5ltmexporter:f5ltmexporter /opt/f5ltm_exporter/*
-sudo ln -s /opt/f5ltm_exporter/f5ltmexporterserver /usr/local/bin/f5ltmexporterserver
+sudo ln -s /opt/f5ltm_exporter/f5ltmexporterserver /usr/bin/f5ltmexporterserver
 
 sudo tee /etc/systemd/system/f5ltm_exporter.service <<EOF
 [Unit]
@@ -63,7 +75,7 @@ After=network-online.target
 [Service]
 Type=simple
 WorkingDirectory=/opt/f5ltm_exporter
-ExecStart=/usr/local/bin/f5ltmexporterserver
+ExecStart=/usr/bin/f5ltmexporterserver
 
 Restart=always
 
