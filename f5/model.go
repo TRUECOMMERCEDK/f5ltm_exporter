@@ -165,6 +165,7 @@ func (m *Model) GetPoolStats(sessionId string) (PoolStats, error) {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != 200 {
+		err := fmt.Errorf("http response error: %v", resp.StatusCode)
 		return msg, err
 	}
 
