@@ -101,21 +101,3 @@ sudo systemctl enable --now f5ltm_exporter.service
         - target_label: __address__
           replacement: 127.0.0.1:9143
 ```
-
-## Filebeat configuration
-```console
-- type: journald
-  enabled: true
-  pipeline: filebeat
-  id: service-f5ltm-exporter
-  include_matches.match:
-    - _SYSTEMD_UNIT=f5ltm_exporter.service
-  fields:
-    type: f5ltm_exporter.server
-
-  parsers:
-    - ndjson:
-      overwrite_keys: true
-      add_error_key: true
-      expand_keys: true
-```
