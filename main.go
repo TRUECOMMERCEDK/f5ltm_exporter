@@ -7,11 +7,12 @@ import (
 	"f5ltm_exporter/config"
 	"f5ltm_exporter/prober"
 	"log/slog"
-	"maragu.dev/env"
 	"net"
 	"net/http"
 	"os"
 	"strconv"
+
+	"maragu.dev/env"
 )
 
 func main() {

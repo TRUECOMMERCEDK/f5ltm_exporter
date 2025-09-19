@@ -3,13 +3,15 @@ package f5
 import (
 	"bytes"
 	"crypto/tls"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/tidwall/gjson"
 	"io"
 	"net/http"
 	"time"
+
+	"github.com/tidwall/gjson"
 )
 
 type Model struct {
@@ -124,8 +126,8 @@ func (m *Model) Authenticate() (string, error) {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != 200 {
-		myError := errors.New("authentication failed")
-		return "", myError
+		//myError := errors.New("authentication failed")
+		return "", err
 	}
 
 	bodyText, err := io.ReadAll(resp.Body)
@@ -223,4 +225,43 @@ func (m *Model) GetSyncStatus(sessionId string) (int, error) {
 	}
 
 	return status, nil
+}
+
+func (m *Model) Logout(sessionId string) (string, error) {
+
+	tr := &http.Transport{
+		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+	}
+
+	client := &http.Client{
+		Transport: tr,
+		Timeout:   10 * time.Second,
+	}
+
+	addr := fmt.Sprintf("%s:%s", m.Host, m.Port)
+	req, err := http.NewRequest("DELETE", "https://"+addr+"/mgmt/shared/authz/tokens/"+sessionId+"", nil)
+	if err != nil {
+		return "", err
+	}
+
+	req.Close = true
+	req.Header.Add("Authorization", "Basic "+basicAuth(m.User, m.Pass))
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		myError := errors.New("token delete failed")
+		return "", myError
+	}
+
+	return "", nil
+}
+
+func basicAuth(username, password string) string {
+	auth := username + ":" + password
+	return base64.StdEncoding.EncodeToString([]byte(auth))
 }

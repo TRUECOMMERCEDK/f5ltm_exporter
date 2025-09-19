@@ -4,12 +4,13 @@ import (
 	"f5ltm_exporter/config"
 	"f5ltm_exporter/f5"
 	"fmt"
-	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"log/slog"
 	"net/http"
 	"regexp"
 	"time"
+
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 func Handler(w http.ResponseWriter, r *http.Request, c config.Config, logger *slog.Logger) {
@@ -164,4 +165,10 @@ func Handler(w http.ResponseWriter, r *http.Request, c config.Config, logger *sl
 	logger.Info("F5 Device Scrape", slog.Float64("request_duration_seconds", time.Since(start).Seconds()))
 	h := promhttp.HandlerFor(registry, promhttp.HandlerOpts{})
 	h.ServeHTTP(w, r)
+
+	_, err = f5Api.Logout(sessionId)
+	if err != nil {
+		return
+	}
+
 }
