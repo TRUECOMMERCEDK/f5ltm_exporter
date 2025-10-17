@@ -37,7 +37,7 @@ func main() {
 	f5 := f5api.Model{
 		User:       *flagF5User,
 		Pass:       *flagF5Pass,
-		Host:       *flagHost,
+		Host:       "",
 		Port:       "443",
 		MaxRetries: 3,
 		RetryDelay: 500 * time.Millisecond,

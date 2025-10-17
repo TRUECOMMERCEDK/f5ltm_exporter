@@ -10,6 +10,7 @@ import (
 
 func Handler(w http.ResponseWriter, r *http.Request, f5 f5api.Model, logger *slog.Logger) {
 	target := r.URL.Query().Get("target")
+	f5.Host = target
 
 	if target == "" {
 		http.Error(w, "Target parameter is missing", http.StatusBadRequest)
