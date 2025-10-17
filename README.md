@@ -50,11 +50,11 @@ Development requirements:
 ## Push System to repository
 * make deploy
 
-## Environment (.env)
-    HOST                (default binds to 0.0.0.0)
-    PORT                (listening port, default 9143)
-    F5_USER             F5 user with API access
-    F5_PASS             Password for the F5 API user
+## cmd flags
+    -host               (default binds to 0.0.0.0)
+    -port               (listening port, default 9143)
+    -f5-user            F5 user with API access
+    -f5-user            Password for the F5 API user
 
 ## Installation
 ```console
@@ -75,7 +75,7 @@ After=network-online.target
 [Service]
 Type=simple
 WorkingDirectory=/opt/f5ltm_exporter
-ExecStart=/usr/bin/f5ltmexporterserver
+ExecStart=/usr/bin/f5ltmexporterserver -f5-user xxxx -f5-pass xxxxxx
 
 Restart=always
 

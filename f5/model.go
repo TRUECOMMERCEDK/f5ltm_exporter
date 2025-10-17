@@ -5,13 +5,21 @@ import (
 	"crypto/tls"
 	"encoding/base64"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"time"
 
 	"github.com/tidwall/gjson"
+)
+
+const (
+	defaultTimeout = 10 * time.Second
+	loginURL       = "/mgmt/shared/authn/login"
+	logoutURL      = "/mgmt/shared/authz/tokens/"
+	poolStatsURL   = "/mgmt/tm/ltm/pool/stats"
+	syncStatusURL  = "/mgmt/tm/cm/sync-status"
+	syncStatusKey  = "entries.https://localhost/mgmt/tm/cm/sync-status/0.nestedStats.entries.status.description"
 )
 
 type Model struct {
@@ -30,238 +38,173 @@ type Entry struct {
 }
 
 type NestedStats struct {
-	Entries Entries `json:"entries"`
+	Entries StatEntries `json:"entries"`
 }
 
-type Entries struct {
-	ActiveMemberCnt         ActiveMemberCnt `json:"activeMemberCnt"`
-	AvailableMemberCnt      ActiveMemberCnt `json:"availableMemberCnt"`
-	ConnqAllAgeEdm          ActiveMemberCnt `json:"connqAll.ageEdm"`
-	ConnqAllAgeEma          ActiveMemberCnt `json:"connqAll.ageEma"`
-	ConnqAllAgeHead         ActiveMemberCnt `json:"connqAll.ageHead"`
-	ConnqAllAgeMax          ActiveMemberCnt `json:"connqAll.ageMax"`
-	ConnqAllDepth           ActiveMemberCnt `json:"connqAll.depth"`
-	ConnqAllServiced        ActiveMemberCnt `json:"connqAll.serviced"`
-	ConnqAgeEdm             ActiveMemberCnt `json:"connq.ageEdm"`
-	ConnqAgeEma             ActiveMemberCnt `json:"connq.ageEma"`
-	ConnqAgeHead            ActiveMemberCnt `json:"connq.ageHead"`
-	ConnqAgeMax             ActiveMemberCnt `json:"connq.ageMax"`
-	ConnqDepth              ActiveMemberCnt `json:"connq.depth"`
-	ConnqServiced           ActiveMemberCnt `json:"connq.serviced"`
-	CurPriogrp              ActiveMemberCnt `json:"curPriogrp"`
-	CurSessions             ActiveMemberCnt `json:"curSessions"`
-	HighestPriogrp          ActiveMemberCnt `json:"highestPriogrp"`
-	LowestPriogrp           ActiveMemberCnt `json:"lowestPriogrp"`
-	MemberCnt               ActiveMemberCnt `json:"memberCnt"`
-	MinActiveMembers        ActiveMemberCnt `json:"minActiveMembers"`
-	MonitorRule             MonitorRule     `json:"monitorRule"`
-	MrMsgIn                 ActiveMemberCnt `json:"mr.msgIn"`
-	MrMsgOut                ActiveMemberCnt `json:"mr.msgOut"`
-	MrReqIn                 ActiveMemberCnt `json:"mr.reqIn"`
-	MrReqOut                ActiveMemberCnt `json:"mr.reqOut"`
-	MrRespIn                ActiveMemberCnt `json:"mr.respIn"`
-	MrRespOut               ActiveMemberCnt `json:"mr.respOut"`
-	TmName                  MonitorRule     `json:"tmName"`
-	ServersideBitsIn        ActiveMemberCnt `json:"serverside.bitsIn"`
-	ServersideBitsOut       ActiveMemberCnt `json:"serverside.bitsOut"`
-	ServersideCurConns      ActiveMemberCnt `json:"serverside.curConns"`
-	ServersideMaxConns      ActiveMemberCnt `json:"serverside.maxConns"`
-	ServersidePktsIn        ActiveMemberCnt `json:"serverside.pktsIn"`
-	ServersidePktsOut       ActiveMemberCnt `json:"serverside.pktsOut"`
-	ServersideTotConns      ActiveMemberCnt `json:"serverside.totConns"`
-	StatusAvailabilityState MonitorRule     `json:"status.availabilityState"`
-	StatusEnabledState      MonitorRule     `json:"status.enabledState"`
-	StatusStatusReason      MonitorRule     `json:"status.statusReason"`
-	TotRequests             ActiveMemberCnt `json:"totRequests"`
+type StatEntries struct {
+	ActiveMemberCnt         StatValue   `json:"activeMemberCnt"`
+	AvailableMemberCnt      StatValue   `json:"availableMemberCnt"`
+	MemberCnt               StatValue   `json:"memberCnt"`
+	MinActiveMembers        StatValue   `json:"minActiveMembers"`
+	ServersideCurConns      StatValue   `json:"serverside.curConns"`
+	ServersideTotConns      StatValue   `json:"serverside.totConns"`
+	StatusAvailabilityState StatMessage `json:"status.availabilityState"`
+	StatusEnabledState      StatMessage `json:"status.enabledState"`
+	StatusStatusReason      StatMessage `json:"status.statusReason"`
+	TmName                  StatMessage `json:"tmName"`
+	// (optional) add more fields if needed
 }
 
-type ActiveMemberCnt struct {
+type StatValue struct {
 	Value int64 `json:"value"`
 }
 
-type MonitorRule struct {
+type StatMessage struct {
 	Description string `json:"description"`
 }
 
 type F5Token struct {
-	Token            Token `json:"token"`
-	LastUpdateMicros int64 `json:"lastUpdateMicros"`
+	Token Token `json:"token"`
 }
 
 type Token struct {
-	Token            string `json:"token"`
-	Timeout          int64  `json:"timeout"`
-	StartTime        string `json:"startTime"`
-	LastUpdateMicros int64  `json:"lastUpdateMicros"`
-	ExpirationMicros int64  `json:"expirationMicros"`
+	Token string `json:"token"`
 }
 
+// Authenticate logs in to the F5 device and retrieves a session token
 func (m *Model) Authenticate() (string, error) {
+	url := m.apiURL(loginURL)
 
-	var msg F5Token
+	payload, _ := json.Marshal(map[string]string{
+		"username":          m.User,
+		"password":          m.Pass,
+		"loginProviderName": "tmos",
+	})
 
+	resp, err := m.doRequest("POST", url, "application/json", bytes.NewBuffer(payload), "")
+	if err != nil {
+		return "", fmt.Errorf("authentication request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("authentication failed: HTTP %d", resp.StatusCode)
+	}
+
+	var tokenResp F5Token
+	if err := decodeJSON(resp.Body, &tokenResp); err != nil {
+		return "", fmt.Errorf("failed to parse auth response: %w", err)
+	}
+
+	return tokenResp.Token.Token, nil
+}
+
+// GetPoolStats fetches pool statistics using the given session token
+func (m *Model) GetPoolStats(sessionID string) (PoolStats, error) {
+	url := m.apiURL(poolStatsURL)
+	resp, err := m.doRequest("GET", url, "", nil, sessionID)
+	if err != nil {
+		return PoolStats{}, fmt.Errorf("pool stats request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return PoolStats{}, fmt.Errorf("failed to get pool stats: HTTP %d", resp.StatusCode)
+	}
+
+	var stats PoolStats
+	if err := decodeJSON(resp.Body, &stats); err != nil {
+		return PoolStats{}, fmt.Errorf("failed to decode pool stats: %w", err)
+	}
+
+	return stats, nil
+}
+
+// GetSyncStatus returns 1 if device is in sync, 0 otherwise
+func (m *Model) GetSyncStatus(sessionID string) (int, error) {
+	url := m.apiURL(syncStatusURL)
+	resp, err := m.doRequest("GET", url, "", nil, sessionID)
+	if err != nil {
+		return 0, fmt.Errorf("sync status request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return 0, fmt.Errorf("failed to get sync status: HTTP %d", resp.StatusCode)
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return 0, fmt.Errorf("failed to read sync response: %w", err)
+	}
+
+	status := gjson.Get(string(body), syncStatusKey)
+	if status.String() == "In Sync" {
+		return 1, nil
+	}
+	return 0, nil
+}
+
+// Logout ends the current F5 session
+func (m *Model) Logout(sessionID string) error {
+	url := m.apiURL(logoutURL + sessionID)
+	authHeader := "Basic " + basicAuth(m.User, m.Pass)
+
+	resp, err := m.doRequest("DELETE", url, "", nil, authHeader)
+	if err != nil {
+		return fmt.Errorf("logout request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("logout failed: HTTP %d", resp.StatusCode)
+	}
+
+	return nil
+}
+
+// doRequest creates and sends an HTTP request with optional token or basic auth
+func (m *Model) doRequest(method, url, contentType string, body io.Reader, authHeader string) (*http.Response, error) {
 	tr := &http.Transport{
-		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+		TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, // you should secure this in production
 	}
 
 	client := &http.Client{
 		Transport: tr,
-		Timeout:   10 * time.Second,
+		Timeout:   defaultTimeout,
 	}
 
-	jsonStr, _ := json.Marshal(map[string]string{"username": m.User, "password": m.Pass, "loginProviderName": "tmos"})
-	addr := fmt.Sprintf("%s:%s", m.Host, m.Port)
-	req, err := http.NewRequest("POST", "https://"+addr+"/mgmt/shared/authn/login", bytes.NewBuffer(jsonStr))
+	req, err := http.NewRequest(method, url, body)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 
 	req.Close = true
-	req.Header.Add("Content-Type", "application/json")
-
-	resp, err := client.Do(req)
-	if err != nil {
-		return "", err
+	if contentType != "" {
+		req.Header.Set("Content-Type", contentType)
 	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != 200 {
-		//myError := errors.New("authentication failed")
-		return "", err
+	if authHeader != "" {
+		if method == "DELETE" {
+			req.Header.Set("Authorization", authHeader)
+		} else {
+			req.Header.Set("X-F5-Auth-Token", authHeader)
+		}
 	}
 
-	bodyText, err := io.ReadAll(resp.Body)
-	err = json.Unmarshal(bodyText, &msg)
-	if err != nil {
-		return "", err
-	}
-
-	return msg.Token.Token, nil
+	return client.Do(req)
 }
 
-func (m *Model) GetPoolStats(sessionId string) (PoolStats, error) {
-	var msg PoolStats
-
-	tr := &http.Transport{
-		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
-	}
-
-	client := &http.Client{
-		Transport: tr,
-		Timeout:   10 * time.Second,
-	}
-
-	addr := fmt.Sprintf("%s:%s", m.Host, m.Port)
-	req, err := http.NewRequest("GET", "https://"+addr+"/mgmt/tm/ltm/pool/stats", nil)
-	if err != nil {
-		return msg, err
-	}
-
-	req.Close = true
-	req.Header.Add("X-F5-Auth-Token", sessionId)
-
-	resp, err := client.Do(req)
-	if err != nil {
-		return msg, err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != 200 {
-		err := fmt.Errorf("http response error: %v", resp.StatusCode)
-		return msg, err
-	}
-
-	bodyText, err := io.ReadAll(resp.Body)
-
-	err = json.Unmarshal(bodyText, &msg)
-	if err != nil {
-
-		return msg, err
-	}
-
-	return msg, nil
+// apiURL builds full URL from host, port, and path
+func (m *Model) apiURL(path string) string {
+	return fmt.Sprintf("https://%s:%s%s", m.Host, m.Port, path)
 }
 
-func (m *Model) GetSyncStatus(sessionId string) (int, error) {
-
-	tr := &http.Transport{
-		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
-	}
-
-	client := &http.Client{
-		Transport: tr,
-		Timeout:   10 * time.Second,
-	}
-
-	addr := fmt.Sprintf("%s:%s", m.Host, m.Port)
-	req, err := http.NewRequest("GET", "https://"+addr+"/mgmt/tm/cm/sync-status", nil)
-	if err != nil {
-		return 0, err
-	}
-
-	req.Close = true
-	req.Header.Add("X-F5-Auth-Token", sessionId)
-
-	resp, err := client.Do(req)
-	if err != nil {
-		return 0, err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != 200 {
-		return 0, err
-	}
-
-	bodyText, err := io.ReadAll(resp.Body)
-
-	syncStatus := gjson.Get(string(bodyText), "entries.https://localhost/mgmt/tm/cm/sync-status/0.nestedStats.entries.status.description")
-
-	var status int
-	switch syncStatus.String() {
-	case "In Sync":
-		status = 1
-	default:
-		status = 0
-	}
-
-	return status, nil
+// decodeJSON decodes response JSON into a given struct
+func decodeJSON(r io.Reader, v interface{}) error {
+	return json.NewDecoder(r).Decode(v)
 }
 
-func (m *Model) Logout(sessionId string) (string, error) {
-
-	tr := &http.Transport{
-		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
-	}
-
-	client := &http.Client{
-		Transport: tr,
-		Timeout:   10 * time.Second,
-	}
-
-	addr := fmt.Sprintf("%s:%s", m.Host, m.Port)
-	req, err := http.NewRequest("DELETE", "https://"+addr+"/mgmt/shared/authz/tokens/"+sessionId+"", nil)
-	if err != nil {
-		return "", err
-	}
-
-	req.Close = true
-	req.Header.Add("Authorization", "Basic "+basicAuth(m.User, m.Pass))
-
-	resp, err := client.Do(req)
-	if err != nil {
-		return "", err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != 200 {
-		myError := errors.New("token delete failed")
-		return "", myError
-	}
-
-	return "", nil
-}
-
-func basicAuth(username, password string) string {
-	auth := username + ":" + password
-	return base64.StdEncoding.EncodeToString([]byte(auth))
+// basicAuth returns base64-encoded basic auth string
+func basicAuth(user, pass string) string {
+	return base64.StdEncoding.EncodeToString([]byte(user + ":" + pass))
 }

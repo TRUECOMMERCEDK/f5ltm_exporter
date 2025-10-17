@@ -2,173 +2,47 @@ package prober
 
 import (
 	"f5ltm_exporter/config"
-	"f5ltm_exporter/f5"
 	"fmt"
 	"log/slog"
 	"net/http"
-	"regexp"
 	"time"
 
-	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
-func Handler(w http.ResponseWriter, r *http.Request, c config.Config, logger *slog.Logger) {
-
+func Handler(w http.ResponseWriter, r *http.Request, cfg config.Config, logger *slog.Logger) {
 	start := time.Now()
-
-	poolStateGauge := prometheus.NewGaugeVec(
-		prometheus.GaugeOpts{
-			Name:      "pool_state",
-			Help:      "F5 LTM Pool status",
-			Namespace: "f5ltm",
-		},
-		[]string{
-			"partition_name",
-			"pool_name",
-		},
-	)
-
-	poolCurrentConnectionsGauge := prometheus.NewGaugeVec(
-		prometheus.GaugeOpts{
-			Name:      "pool_connections_current",
-			Help:      "F5 LTM Pool current connections",
-			Namespace: "f5ltm",
-		},
-		[]string{
-			"partition_name",
-			"pool_name",
-		},
-	)
-
-	poolTotalConnectionsGauge := prometheus.NewGaugeVec(
-		prometheus.GaugeOpts{
-			Name:      "pool_connections_total",
-			Help:      "F5 LTM Pool total connections",
-			Namespace: "f5ltm",
-		},
-		[]string{
-			"partition_name",
-			"pool_name",
-		},
-	)
-
-	poolStateActiveMemberCountGauge := prometheus.NewGaugeVec(
-		prometheus.GaugeOpts{
-			Name:      "pool_members_active_total",
-			Help:      "F5 LTM Pool active members count",
-			Namespace: "f5ltm",
-		},
-		[]string{
-			"partition_name",
-			"pool_name",
-		},
-	)
-
-	poolStateAvailableMemberCountGauge := prometheus.NewGaugeVec(
-		prometheus.GaugeOpts{
-			Name:      "pool_members_available_total",
-			Help:      "F5 LTM Pool available members count",
-			Namespace: "f5ltm",
-		},
-		[]string{
-			"partition_name",
-			"pool_name",
-		},
-	)
-
-	poolStateMemberCountGauge := prometheus.NewGaugeVec(
-		prometheus.GaugeOpts{
-			Name:      "pool_members_configured_total",
-			Help:      "F5 LTM Pool configured members count",
-			Namespace: "f5ltm",
-		},
-		[]string{
-			"partition_name",
-			"pool_name",
-		},
-	)
-
-	syncStatusGauge := prometheus.NewGauge(
-		prometheus.GaugeOpts{
-			Name:      "sync_status",
-			Help:      "F5 sync status",
-			Namespace: "f5ltm",
-		},
-	)
-
-	registry := prometheus.NewRegistry()
-	registry.MustRegister(poolStateGauge)
-	registry.MustRegister(poolCurrentConnectionsGauge)
-	registry.MustRegister(poolTotalConnectionsGauge)
-	registry.MustRegister(poolStateActiveMemberCountGauge)
-	registry.MustRegister(poolStateAvailableMemberCountGauge)
-	registry.MustRegister(poolStateMemberCountGauge)
-	registry.MustRegister(syncStatusGauge)
 
 	target := r.URL.Query().Get("target")
 	if target == "" {
-		logger.Error("F5 Device Scrape", slog.String("request_duration_seconds", time.Since(start).String()), slog.String("err_msg", "Target parameter is missing"))
-		http.Error(w, fmt.Sprintf("Target parameter is missing"), http.StatusBadRequest)
+		logger.Error("Missing target parameter",
+			slog.String("duration", time.Since(start).String()))
+		http.Error(w, "Target parameter is missing", http.StatusBadRequest)
 		return
 	}
 
-	f5Api := &f5.Model{
-		User: c.F5User,
-		Pass: c.F5Pass,
-		Host: target,
-	}
+	metrics := createMetrics()
 
-	sessionId, err := f5Api.Authenticate()
+	// Get data from F5
+	data, err := getF5Stats(target, cfg)
 	if err != nil {
-		logger.Error("F5 Device Scrape", slog.Float64("request_duration_seconds", time.Since(start).Seconds()), slog.Any("err_msg", err))
-		http.Error(w, fmt.Sprintf("%s", err), http.StatusBadRequest)
+		logger.Error("F5 stats retrieval failed",
+			slog.Float64("duration_seconds", time.Since(start).Seconds()),
+			slog.Any("error", err),
+		)
+		http.Error(w, fmt.Sprintf("Error: %v", err), http.StatusBadRequest)
 		return
 	}
+	defer data.Client.Logout(data.SessionID)
 
-	PoolStats, err := f5Api.GetPoolStats(sessionId)
-	if err != nil {
-		logger.Error("F5 Device Scrape", slog.Float64("request_duration_seconds", time.Since(start).Seconds()), slog.Any("err_msg", err))
-		http.Error(w, fmt.Sprintf("Error:%s", err), http.StatusBadRequest)
-		return
-	}
+	// Populate metrics
+	populateMetrics(metrics, data, logger)
 
-	result, _ := regexp.Compile(`/(.*)/(.*)`)
+	logger.Info("F5 scrape successful",
+		slog.Float64("duration_seconds", time.Since(start).Seconds()),
+	)
 
-	for _, v := range PoolStats.Entries {
-
-		res := result.FindStringSubmatch(v.NestedStats.Entries.TmName.Description)
-
-		switch v.NestedStats.Entries.StatusAvailabilityState.Description {
-		case "available":
-			poolStateGauge.WithLabelValues(res[1], res[2]).Set(1)
-		default:
-			poolStateGauge.WithLabelValues(res[1], res[2]).Set(0)
-		}
-
-		poolStateActiveMemberCountGauge.WithLabelValues(res[1], res[2]).Set(float64(v.NestedStats.Entries.ActiveMemberCnt.Value))
-		poolStateAvailableMemberCountGauge.WithLabelValues(res[1], res[2]).Set(float64(v.NestedStats.Entries.AvailableMemberCnt.Value))
-		poolStateMemberCountGauge.WithLabelValues(res[1], res[2]).Set(float64(v.NestedStats.Entries.MemberCnt.Value))
-		poolCurrentConnectionsGauge.WithLabelValues(res[1], res[2]).Set(float64(v.NestedStats.Entries.ServersideCurConns.Value))
-		poolTotalConnectionsGauge.WithLabelValues(res[1], res[2]).Set(float64(v.NestedStats.Entries.ServersideTotConns.Value))
-	}
-
-	SyncStats, err := f5Api.GetSyncStatus(sessionId)
-	if err != nil {
-		logger.Error("F5 Device Scrape", slog.Float64("request_duration_seconds", time.Since(start).Seconds()), slog.Any("err_msg", err))
-		http.Error(w, fmt.Sprintf("Error:%s", err), http.StatusBadRequest)
-		return
-	}
-
-	syncStatusGauge.Set(float64(SyncStats))
-
-	logger.Info("F5 Device Scrape", slog.Float64("request_duration_seconds", time.Since(start).Seconds()))
-	h := promhttp.HandlerFor(registry, promhttp.HandlerOpts{})
-	h.ServeHTTP(w, r)
-
-	_, err = f5Api.Logout(sessionId)
-	if err != nil {
-		return
-	}
-
+	// Serve metrics
+	handler := promhttp.HandlerFor(metrics.Registry, promhttp.HandlerOpts{})
+	handler.ServeHTTP(w, r)
 }

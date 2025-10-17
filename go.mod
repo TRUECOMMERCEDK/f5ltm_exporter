@@ -5,7 +5,6 @@ go 1.23.0
 require (
 	github.com/prometheus/client_golang v1.20.4
 	github.com/tidwall/gjson v1.18.0
-	maragu.dev/env v0.2.0
 )
 
 require (
