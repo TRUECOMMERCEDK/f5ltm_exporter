@@ -1,48 +1,81 @@
 package prober
 
 import (
-	"f5ltm_exporter/config"
-	"fmt"
 	"log/slog"
 	"net/http"
-	"time"
 
+	"github.com/elsgaard/f5api"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
-func Handler(w http.ResponseWriter, r *http.Request, cfg config.Config, logger *slog.Logger) {
-	start := time.Now()
-
+func Handler(w http.ResponseWriter, r *http.Request, f5 f5api.Model, logger *slog.Logger) {
 	target := r.URL.Query().Get("target")
+
 	if target == "" {
-		logger.Error("Missing target parameter",
-			slog.String("duration", time.Since(start).String()))
 		http.Error(w, "Target parameter is missing", http.StatusBadRequest)
+		logger.Error("Missing target parameter")
 		return
 	}
 
 	metrics := createMetrics()
 
-	// Get data from F5
-	data, err := getF5Stats(target, cfg)
+	token, err := login(f5, logger)
 	if err != nil {
-		logger.Error("F5 stats retrieval failed",
-			slog.Float64("duration_seconds", time.Since(start).Seconds()),
-			slog.Any("error", err),
-		)
-		http.Error(w, fmt.Sprintf("Error: %v", err), http.StatusBadRequest)
+		http.Error(w, "Authentication failed", http.StatusInternalServerError)
 		return
 	}
-	defer data.Client.Logout(data.SessionID)
+	defer logout(f5, token, logger)
 
-	// Populate metrics
-	populateMetrics(metrics, data, logger)
+	if err := collectPoolStats(f5, token, metrics, logger); err != nil {
+		http.Error(w, "Failed to collect stats", http.StatusInternalServerError)
+		return
+	}
 
-	logger.Info("F5 scrape successful",
-		slog.Float64("duration_seconds", time.Since(start).Seconds()),
-	)
+	if err := collectSyncStatus(f5, token, metrics, logger); err != nil {
+		http.Error(w, "Failed to collect sync status", http.StatusInternalServerError)
+		return
+	}
 
-	// Serve metrics
-	handler := promhttp.HandlerFor(metrics.Registry, promhttp.HandlerOpts{})
-	handler.ServeHTTP(w, r)
+	logger.Info("F5 scrape successful")
+
+	promhttp.HandlerFor(metrics.Registry, promhttp.HandlerOpts{}).ServeHTTP(w, r)
+}
+
+// login logs in and returns the token
+func login(f5 f5api.Model, logger *slog.Logger) (string, error) {
+	token, err := f5.Login()
+	if err != nil {
+		logger.Error("Authentication failed", slog.Any("error", err))
+		return "", err
+	}
+	return token, nil
+}
+
+// logout logs out but does not crash on failure
+func logout(f5 f5api.Model, token string, logger *slog.Logger) {
+	if err := f5.Logout(token); err != nil {
+		logger.Warn("Logout failed", slog.Any("error", err))
+	}
+}
+
+// collectPoolStats retrieves and populates metrics
+func collectPoolStats(f5 f5api.Model, token string, metrics *Metrics, logger *slog.Logger) error {
+	stats, err := f5.GetPoolStats(token)
+	if err != nil {
+		logger.Error("Failed to fetch pool stats", slog.Any("error", err))
+		return err
+	}
+	populatePoolStatsMetrics(metrics, stats, logger)
+	return nil
+}
+
+// collectSyncStatus retrieves and populates sync status metrics
+func collectSyncStatus(f5 f5api.Model, token string, metrics *Metrics, logger *slog.Logger) error {
+	status, err := f5.GetSyncStatus(token)
+	if err != nil {
+		logger.Error("Failed to fetch sync status", slog.Any("error", err))
+		return err
+	}
+	populateSyncMetrics(metrics, status, logger)
+	return nil
 }

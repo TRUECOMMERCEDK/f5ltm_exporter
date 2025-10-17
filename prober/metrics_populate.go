@@ -3,12 +3,14 @@ package prober
 import (
 	"log/slog"
 	"regexp"
+
+	"github.com/elsgaard/f5api"
 )
 
-func populateMetrics(metrics *Metrics, data *F5Data, logger *slog.Logger) {
+func populatePoolStatsMetrics(metrics *Metrics, data f5api.PoolStats, logger *slog.Logger) {
 	re := regexp.MustCompile(`/(.*)/(.*)`)
 
-	for _, entry := range data.PoolStats.Entries {
+	for _, entry := range data.Entries {
 		tmName := entry.NestedStats.Entries.TmName.Description
 		match := re.FindStringSubmatch(tmName)
 		if len(match) != 3 {
@@ -29,6 +31,10 @@ func populateMetrics(metrics *Metrics, data *F5Data, logger *slog.Logger) {
 		metrics.CurrentConnections.WithLabelValues(partition, pool).Set(float64(entry.NestedStats.Entries.ServersideCurConns.Value))
 		metrics.TotalConnections.WithLabelValues(partition, pool).Set(float64(entry.NestedStats.Entries.ServersideTotConns.Value))
 	}
+}
 
-	metrics.SyncStatus.Set(data.SyncStatus)
+func populateSyncMetrics(metrics *Metrics, status int, logger *slog.Logger) {
+
+	metrics.SyncStatus.Set(float64(status))
+
 }

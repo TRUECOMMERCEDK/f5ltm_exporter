@@ -1,7 +1,6 @@
 package main
 
 import (
-	"f5ltm_exporter/config"
 	"f5ltm_exporter/prober"
 	"flag"
 	"fmt"
@@ -10,6 +9,9 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"time"
+
+	"github.com/elsgaard/f5api"
 )
 
 // CLI flags
@@ -32,23 +34,27 @@ func main() {
 		os.Exit(1)
 	}
 
-	cfg := config.Config{
-		F5User: *flagF5User,
-		F5Pass: *flagF5Pass,
+	f5 := f5api.Model{
+		User:       *flagF5User,
+		Pass:       *flagF5Pass,
+		Host:       *flagHost,
+		Port:       "443",
+		MaxRetries: 3,
+		RetryDelay: 500 * time.Millisecond,
 	}
 
 	address := net.JoinHostPort(*flagHost, strconv.Itoa(*flagPort))
 
-	startServer(address, cfg, logger)
+	startServer(address, f5, logger)
 }
 
 func createLogger() *slog.Logger {
 	return slog.New(slog.NewJSONHandler(os.Stdout, nil))
 }
 
-func startServer(address string, cfg config.Config, logger *slog.Logger) {
+func startServer(address string, f5 f5api.Model, logger *slog.Logger) {
 	http.HandleFunc("/probe", func(w http.ResponseWriter, r *http.Request) {
-		prober.Handler(w, r, cfg, logger)
+		prober.Handler(w, r, f5, logger)
 	})
 
 	logger.Info("F5 Exporter starting", slog.String("bind_address", address))
