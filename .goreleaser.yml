@@ -4,9 +4,10 @@ builds:
   - env: [CGO_ENABLED=0]
     goos:
       - linux
+      - windows
     goarch:
       - amd64
     id: "f5ltm_exporter"
     dir: .
-    main: ./
+    main: ./cmd/f5ltm/exporter
     binary: f5ltmexporterserver
