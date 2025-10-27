@@ -1,0 +1,10 @@
+services:
+  f5_exporter:
+    image: f5ltmexporter:latest
+    ports:
+      - "9143:9143"
+    command: -f5-user xxxx -f5-pass xxxx
+    environment:
+      HOST: ""
+    restart: unless-stopped
+

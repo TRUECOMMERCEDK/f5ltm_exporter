@@ -1,15 +1,14 @@
-FROM golang:1-bullseye AS builder
+FROM golang:1.25 AS builder
 WORKDIR /src
 
 COPY go.mod go.sum ./
 RUN go mod download -x
 
 COPY . ./
-RUN GOOS=linux GOARCH=amd64 go build -ldflags="-X 'main.release=`git rev-parse --short=8 HEAD`'" -o /bin/server ./
+RUN GOOS=linux GOARCH=amd64 go build -ldflags="-X 'main.release=`git rev-parse --short=8 HEAD`'" -o /bin/server ./cmd/f5ltm_exporter
 
-FROM gcr.io/distroless/base-debian11
+FROM gcr.io/distroless/base-debian12
 WORKDIR /app
 
 COPY --from=builder /bin/server ./
 ENTRYPOINT ["./server"]
-#CMD ["./server"]
