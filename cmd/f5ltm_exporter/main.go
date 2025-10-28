@@ -17,10 +17,11 @@ import (
 )
 
 var (
-	flagHost   = flag.String("host", "0.0.0.0", "Host address to bind the exporter (e.g., 0.0.0.0)")
-	flagPort   = flag.Int("port", 9143, "Port number to bind the exporter (e.g., 9143)")
-	flagF5User = flag.String("f5-user", "", "Username for F5 LTM authentication (required)")
-	flagF5Pass = flag.String("f5-pass", "", "Password for F5 LTM authentication (required)")
+	flagHost          = flag.String("host", "0.0.0.0", "Host address to bind the exporter (e.g., 0.0.0.0)")
+	flagPort          = flag.Int("port", 9143, "Port number to bind the exporter (e.g., 9143)")
+	flagF5User        = flag.String("f5-user", "", "Username for F5 LTM authentication (required)")
+	flagF5Pass        = flag.String("f5-pass", "", "Password for F5 LTM authentication (required)")
+	flagTLSSkipVerify = flag.Bool("tls-skip-verify", false, "Skip TLS certificate verification (use only for testing)")
 )
 
 func main() {
@@ -97,12 +98,13 @@ func (c *targetCache) getOrCreate(host string) *f5api.Model {
 	}
 
 	m := &f5api.Model{
-		User:       c.user,
-		Pass:       c.pass,
-		Host:       host,
-		Port:       "443",
-		MaxRetries: 3,
-		RetryDelay: 500 * time.Millisecond,
+		User:            c.user,
+		Pass:            c.pass,
+		Host:            host,
+		Port:            "443",
+		MaxRetries:      3,
+		RetryDelay:      500 * time.Millisecond,
+		InsecureSkipTLS: *flagTLSSkipVerify,
 	}
 
 	c.models[host] = m

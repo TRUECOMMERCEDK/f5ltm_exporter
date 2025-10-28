@@ -30,6 +30,8 @@ type Model struct {
 	MaxRetries int
 	RetryDelay time.Duration
 
+	InsecureSkipTLS bool
+
 	mu           sync.Mutex
 	sessionToken string
 	tokenExpires time.Time
@@ -225,7 +227,9 @@ func (m *Model) doRequest(method, url, contentType string, body io.Reader, authH
 	client := &http.Client{
 		Timeout: defaultTimeout,
 		Transport: &http.Transport{
-			TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, // ⚠️ disable for production
+			TLSClientConfig: &tls.Config{
+				InsecureSkipVerify: m.InsecureSkipTLS,
+			},
 		},
 	}
 

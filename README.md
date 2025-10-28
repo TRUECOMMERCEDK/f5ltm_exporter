@@ -23,12 +23,13 @@ Prometheus passes the target F5 device via a `target` query parameter on each sc
 
 ## Command-Line Flags
 
-| Flag | Description | Default |
-|------|--------------|----------|
-| `--host` | Address to bind the exporter | `0.0.0.0` |
-| `--port` | Port number to bind the exporter | `9143` |
-| `--f5-user` | F5 username (required) | – |
-| `--f5-pass` | F5 password (required) | – |
+| Flag | Description                   | Default |
+|------|-------------------------------|-------|
+| `-host` | Address to bind the exporter  | `0.0.0.0` |
+| `-port` | Port number to bind the exporter | `9143` |
+| `-f5-user` | F5 username (required)        | –     |
+| `-f5-pass` | F5 password (required)        | –     |
+| `-tls-skip-verify` | Skip TLS verification | `false` |
 
 Example:
 ```bash
