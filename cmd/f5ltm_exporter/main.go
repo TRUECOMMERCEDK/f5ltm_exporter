@@ -2,6 +2,7 @@ package main
 
 import (
 	"f5ltm_exporter/internal/f5api"
+	"f5ltm_exporter/internal/logging"
 	"f5ltm_exporter/prober"
 	"flag"
 	"fmt"
@@ -17,16 +18,22 @@ import (
 )
 
 var (
-	flagHost          = flag.String("host", "0.0.0.0", "Host address to bind the exporter (e.g., 0.0.0.0)")
+	flagHost          = flag.String("host", "127.0.0.1", "Host address to bind the exporter (e.g., 0.0.0.0)")
 	flagPort          = flag.Int("port", 9143, "Port number to bind the exporter (e.g., 9143)")
 	flagF5User        = flag.String("f5-user", "", "Username for F5 LTM authentication (required)")
 	flagF5Pass        = flag.String("f5-pass", "", "Password for F5 LTM authentication (required)")
 	flagTLSSkipVerify = flag.Bool("tls-skip-verify", false, "Skip TLS certificate verification (use only for testing)")
+	flagLogFormat     = flag.String("log-format", "json", "Log format: json or text")
+	flagLogLevel      = flag.String("log-level", "info", "Log level: debug, info, warn, error")
 )
 
 func main() {
+
 	flag.Parse()
-	logger := createLogger()
+	logger := logging.NewWithOptions(*flagLogFormat, *flagLogLevel)
+
+	// Make it the global default for slog.Default()
+	slog.SetDefault(logger)
 
 	if *flagF5User == "" || *flagF5Pass == "" {
 		fmt.Fprintln(os.Stderr, "Error: --f5-user and --f5-pass are required")
@@ -44,10 +51,6 @@ func main() {
 	startServer(address, cache, logger)
 }
 
-func createLogger() *slog.Logger {
-	return slog.New(slog.NewJSONHandler(os.Stdout, nil))
-}
-
 func startServer(address string, cache *targetCache, logger *slog.Logger) {
 	mux := http.NewServeMux()
 
@@ -59,7 +62,7 @@ func startServer(address string, cache *targetCache, logger *slog.Logger) {
 			return
 		}
 
-		f5 := cache.getOrCreate(target)
+		f5 := cache.getOrCreate(target, logger)
 		prober.Handler(w, r, f5, logger)
 	})
 
@@ -89,7 +92,7 @@ type targetCache struct {
 	pass   string
 }
 
-func (c *targetCache) getOrCreate(host string) *f5api.Model {
+func (c *targetCache) getOrCreate(host string, logger *slog.Logger) *f5api.Model {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -105,6 +108,7 @@ func (c *targetCache) getOrCreate(host string) *f5api.Model {
 		MaxRetries:      3,
 		RetryDelay:      500 * time.Millisecond,
 		InsecureSkipTLS: *flagTLSSkipVerify,
+		Logger:          logger,
 	}
 
 	c.models[host] = m

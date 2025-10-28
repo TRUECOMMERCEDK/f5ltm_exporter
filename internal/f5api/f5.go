@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"math/rand"
 	"net/http"
 	"strings"
@@ -31,6 +32,7 @@ type Model struct {
 	RetryDelay time.Duration
 
 	InsecureSkipTLS bool
+	Logger          *slog.Logger
 
 	mu           sync.Mutex
 	sessionToken string
@@ -108,36 +110,60 @@ type SyncEntry struct {
 // -----------------------------
 
 // getToken logs in if there is no valid token or if the old one is near expiry.
+// It emits structured logs for reuse vs login behavior.
+// getToken logs in if there is no valid token or if the old one is near expiry.
+// It emits structured logs for reuse vs login behavior and shows the token value.
 func (m *Model) getToken() (string, error) {
+
+	logger := m.Logger
+
 	m.mu.Lock()
 	valid := m.sessionToken != "" && time.Now().Before(m.tokenExpires.Add(-tokenGrace))
 	token := m.sessionToken
+	host := m.Host
+	expiry := m.tokenExpires
 	m.mu.Unlock()
 
 	if valid {
+		logger.Debug("[f5api] reusing cached token",
+			slog.String("host", host),
+			slog.String("token", token),
+			slog.Duration("expires_in", time.Until(expiry)))
 		return token, nil
 	}
+
+	logger.Info("[f5api] performing new login",
+		slog.String("host", host))
 
 	// Perform login
 	payload := map[string]string{
 		"username":          m.User,
 		"password":          m.Pass,
-		"loginProviderName": "tmos",
+		"loginProviderName": "local",
 	}
 	data, _ := json.Marshal(payload)
 
 	resp, err := m.doRequest("POST", m.apiURL(loginURL), "application/json", bytes.NewReader(data), "")
 	if err != nil {
+		logger.Error("[f5api] authentication request failed",
+			slog.String("host", host),
+			slog.Any("error", err))
 		return "", fmt.Errorf("authentication request failed: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
+		slog.Error("[f5api] authentication failed",
+			slog.String("host", host),
+			slog.Int("status_code", resp.StatusCode))
 		return "", fmt.Errorf("authentication failed: HTTP %d", resp.StatusCode)
 	}
 
 	var tokenResp F5Token
 	if err := decodeJSON(resp.Body, &tokenResp); err != nil {
+		logger.Error("[f5api] failed to parse auth response",
+			slog.String("host", host),
+			slog.Any("error", err))
 		return "", fmt.Errorf("failed to parse auth response: %w", err)
 	}
 
@@ -147,12 +173,19 @@ func (m *Model) getToken() (string, error) {
 		exp = time.UnixMicro(expMicros)
 	}
 
+	newToken := tokenResp.Token.Token
+
 	m.mu.Lock()
-	m.sessionToken = tokenResp.Token.Token
+	m.sessionToken = newToken
 	m.tokenExpires = exp
 	m.mu.Unlock()
 
-	return tokenResp.Token.Token, nil
+	logger.Debug("[f5api] new token acquired",
+		slog.String("host", host),
+		slog.String("token", newToken),
+		slog.Time("expires_at", exp))
+
+	return newToken, nil
 }
 
 // -----------------------------
