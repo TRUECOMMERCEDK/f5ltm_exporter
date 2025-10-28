@@ -1,103 +1,123 @@
-# f5ltm_exporter
-F5 Local Traffic Management Device Exporter
+# F5 LTM Exporter
 
-F5 LTM Exporter is implemented via the multi-target exporter pattern.
-By multi-target exporter pattern we refer to a specific design, in which:
+## Overview
+`f5ltm_exporter` exposes performance and HA metrics from **F5 BIG-IP LTM** devices for **Prometheus**.  
+It uses the F5 iControl REST API to collect pool and sync-status information.
 
-- the exporter will get the target’s metrics via a network protocol.
-- the exporter does not have to run on the machine the metrics are taken from.
-- the exporter gets the targets and a query config string as parameters of Prometheus’ GET request.
-- the exporter subsequently starts the scrape after getting Prometheus’ GET requests and once it is done with scraping.
+This exporter is **multi-target**:  
+Prometheus passes the target F5 device via a `target` query parameter on each scrape.
 
-When the exporter starts the scarape, it is performing following actions:
-- POST /mgmt/shared/authn/login
-- GET /mgmt/tm/ltm/pool/stats
-- GET /mgmt/tm/cm/sync-status
+---
 
-## Exported metrics
+## Features
+- Collects **LTM pool statistics** and **sync-status**
+- Supports multiple F5 devices dynamically (`?target=` parameter)
+- Reuses API tokens automatically (no re-login storms)
+- TLS support with `InsecureSkipVerify` for lab/test use
+- Exposes standard endpoints:
+    - `/probe?target=<F5-IP>` – scrape endpoint used by Prometheus
+    - `/metrics` – exporter self-metrics
+    - `/healthz` – simple health check
 
-```console
-f5ltm_sync_status
-f5ltm_pool_state
-f5ltm_pool_members_configured_total
-f5ltm_pool_members_available_total
-f5ltm_pool_members_active_total
-f5ltm_pool_connections_total
-f5ltm_pool_connections_current
+---
+
+## Command-Line Flags
+
+| Flag | Description | Default |
+|------|--------------|----------|
+| `--host` | Address to bind the exporter | `0.0.0.0` |
+| `--port` | Port number to bind the exporter | `9143` |
+| `--f5-user` | F5 username (required) | – |
+| `--f5-pass` | F5 password (required) | – |
+
+Example:
+```bash
+./f5ltm_exporter   --f5-user admin   --f5-pass secret   --host 0.0.0.0   --port 9143
 ```
 
-## Getting started development
-The project is developed in Go (1.23+).\
-The repository is formatted for use in GoLand.
+Then open:
+```
+http://localhost:9143/probe?target=10.0.0.1
+```
 
-NOTE: The rest of this README assumes you are using GoLand.
+---
 
-## Prerequisites
-Development requirements:
-* GoLand.
+## Prometheus Configuration
 
-## How to start
-* Install GoLand .
-* Open GoLand - Clone  project from Github
+```yaml
+scrape_configs:
+  - job_name: "f5ltm"
+    metrics_path: /probe
+    static_configs:
+      - targets:
+          - 10.0.0.1
+          - 10.0.0.2
+    params:
+      module: [default]
+```
 
-## Run System
-* make start
-* Open a web browser and navigate to `http://localhost:9143/probe?target=f5.somehost.com`
+Prometheus will call:
+```
+http://<exporter-host>:9143/probe?target=10.0.0.1
+```
 
-## Build System
-* make build
+---
 
-## Push System to repository
-* make deploy
+## Security Notes
+- iControl REST uses HTTPS; this exporter skips certificate verification by default (`InsecureSkipVerify=true`).  
+  You can harden it later with proper CA handling.
+- Credentials are passed via flags; consider using environment variables or a secrets manager for production.
 
-## cmd flags
-    -host               (default binds to 0.0.0.0)
-    -port               (listening port, default 9143)
-    -f5-user            F5 user with API access
-    -f5-user            Password for the F5 API user
+---
 
-## Installation
-```console
-sudo useradd --no-create-home --shell /bin/false f5ltmexporter
-sudo mkdir /opt/f5ltm_exporter
-cd /opt/f5ltm_exporter
-sudo tar -xvf f5ltm_exporter_0.0.2_linux_amd64.tar.gz
-sudo chmod 755 f5ltmexporterserver
-sudo chown f5ltmexporter:f5ltmexporter /opt/f5ltm_exporter/*
-sudo ln -s /opt/f5ltm_exporter/f5ltmexporterserver /usr/bin/f5ltmexporterserver
+## Architecture
+```
+Prometheus
+   │
+   ├── /probe?target=f5-a → token cached in memory for "f5-a"
+   ├── /probe?target=f5-b → token cached separately
+   └── /metrics → exporter self-metrics
+```
 
-sudo tee /etc/systemd/system/f5ltm_exporter.service <<EOF
+Each F5 host has:
+- Independent login and cached token
+- Automatic token reuse until expiry (~10h)
+- On-demand refresh when expired
+
+---
+
+## Example Output
+
+```
+# HELP f5_pool_active_members Number of active members in each pool
+# TYPE f5_pool_active_members gauge
+f5_pool_active_members{pool="/Common/web_pool"} 4
+f5_pool_active_members{pool="/Common/api_pool"} 2
+
+# HELP f5_sync_status Indicates whether the device group is In Sync (1) or Out of Sync (0)
+# TYPE f5_sync_status gauge
+f5_sync_status 1
+```
+
+---
+
+## Systemd Example
+
+```ini
 [Unit]
-Description=F5 Exporter
-Wants=network-online.target
-After=network-online.target
+Description=F5 LTM Exporter
+After=network.target
 
 [Service]
-Type=simple
-WorkingDirectory=/opt/f5ltm_exporter
-ExecStart=/usr/bin/f5ltmexporterserver -f5-user xxxx -f5-pass xxxxxx
-
+User=f5ltm
+ExecStart=/opt/f5ltm_exporter/f5ltm_exporter   --f5-user=admin   --f5-pass=secret
 Restart=always
 
 [Install]
 WantedBy=multi-user.target
-EOF
-
-sudo systemctl enable --now f5ltm_exporter.service 
 ```
 
-## Prometheus configuration
-```yaml
-    - job_name: 'f5ltm_exporter'
-      metrics_path: /probe
-      static_configs:
-        - targets:
-          - f5.somehost.com
-      relabel_configs:
-        - source_labels: [__address__]
-          target_label: __param_target
-        - source_labels: [__param_target]
-          target_label: instance
-        - target_label: __address__
-          replacement: 127.0.0.1:9143
-```
+---
+
+## License
+MIT License – see [LICENSE](LICENSE)

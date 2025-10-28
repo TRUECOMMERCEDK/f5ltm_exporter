@@ -1,11 +1,8 @@
 module f5ltm_exporter
 
-go 1.25.3
+go 1.24.0
 
-require (
-	github.com/elsgaard/f5api v0.0.0-20251017171436-8d2c4cef48fe
-	github.com/prometheus/client_golang v1.23.2
-)
+require github.com/prometheus/client_golang v1.23.2
 
 require (
 	github.com/beorn7/perks v1.0.1 // indirect

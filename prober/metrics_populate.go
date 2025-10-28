@@ -1,10 +1,9 @@
 package prober
 
 import (
+	"f5ltm_exporter/internal/f5api"
 	"log/slog"
 	"regexp"
-
-	"github.com/elsgaard/f5api"
 )
 
 func populatePoolStatsMetrics(metrics *Metrics, data f5api.PoolStats, logger *slog.Logger) {
