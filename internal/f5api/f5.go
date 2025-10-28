@@ -16,11 +16,12 @@ import (
 )
 
 const (
-	defaultTimeout = 10 * time.Second
-	loginURL       = "/mgmt/shared/authn/login"
-	poolStatsURL   = "/mgmt/tm/ltm/pool/stats"
-	syncStatusURL  = "/mgmt/tm/cm/sync-status"
-	tokenGrace     = 2 * time.Minute // renew a little before expiry
+	defaultTimeout  = 10 * time.Second
+	loginURL        = "/mgmt/shared/authn/login"
+	refreshTokenURL = "/mgmt/shared/authz/tokens/" // appended with token ID
+	poolStatsURL    = "/mgmt/tm/ltm/pool/stats"
+	syncStatusURL   = "/mgmt/tm/cm/sync-status"
+	tokenGrace      = 2 * time.Minute // renew a little before expiry
 )
 
 type Model struct {
@@ -111,31 +112,51 @@ type SyncEntry struct {
 
 // getToken logs in if there is no valid token or if the old one is near expiry.
 // It emits structured logs for reuse vs login behavior.
-// getToken logs in if there is no valid token or if the old one is near expiry.
-// It emits structured logs for reuse vs login behavior and shows the token value.
+// getToken returns a valid token.
+// It reuses the existing one if valid, attempts refresh when near expiry,
+// and performs a full login if refresh fails or no token exists.
 func (m *Model) getToken() (string, error) {
-
 	logger := m.Logger
+	host := m.Host
 
 	m.mu.Lock()
-	valid := m.sessionToken != "" && time.Now().Before(m.tokenExpires.Add(-tokenGrace))
 	token := m.sessionToken
-	host := m.Host
 	expiry := m.tokenExpires
+	valid := token != "" && time.Now().Before(expiry.Add(-tokenGrace))
 	m.mu.Unlock()
 
 	if valid {
 		logger.Debug("[f5api] reusing cached token",
 			slog.String("host", host),
-			slog.String("token", token),
 			slog.Duration("expires_in", time.Until(expiry)))
 		return token, nil
 	}
 
+	// Attempt refresh if token exists but is expired or near expiry
+	if token != "" {
+		logger.Info("[f5api] attempting token refresh",
+			slog.String("host", host))
+
+		if err := m.refreshToken(token); err == nil {
+			m.mu.Lock()
+			refreshed := m.sessionToken
+			newExp := m.tokenExpires
+			m.mu.Unlock()
+
+			logger.Debug("[f5api] token refreshed successfully",
+				slog.String("host", host),
+				slog.Duration("expires_in", time.Until(newExp)))
+			return refreshed, nil
+		}
+
+		logger.Warn("[f5api] token refresh failed, performing full login",
+			slog.String("host", host))
+	}
+
+	// Full login fallback
 	logger.Info("[f5api] performing new login",
 		slog.String("host", host))
 
-	// Perform login
 	payload := map[string]string{
 		"username":          m.User,
 		"password":          m.Pass,
@@ -153,7 +174,7 @@ func (m *Model) getToken() (string, error) {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		slog.Error("[f5api] authentication failed",
+		logger.Error("[f5api] authentication failed",
 			slog.String("host", host),
 			slog.Int("status_code", resp.StatusCode))
 		return "", fmt.Errorf("authentication failed: HTTP %d", resp.StatusCode)
@@ -182,10 +203,63 @@ func (m *Model) getToken() (string, error) {
 
 	logger.Debug("[f5api] new token acquired",
 		slog.String("host", host),
-		slog.String("token", newToken),
 		slog.Time("expires_at", exp))
 
 	return newToken, nil
+}
+
+// refreshToken attempts to validate and refresh an existing token using Basic Auth.
+// If successful, updates expiry; otherwise, returns an error.
+func (m *Model) refreshToken(token string) error {
+	logger := m.Logger
+	host := m.Host
+
+	url := m.apiURL(refreshTokenURL + token)
+	authHeader := "Basic " + basicAuth(m.User, m.Pass)
+
+	resp, err := m.doRequest("GET", url, "", nil, authHeader)
+	if err != nil {
+		logger.Error("[f5api] token refresh request failed",
+			slog.String("host", host),
+			slog.Any("error", err))
+		return fmt.Errorf("token refresh request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		logger.Warn("[f5api] token refresh failed",
+			slog.String("host", host),
+			slog.Int("status_code", resp.StatusCode))
+		return fmt.Errorf("token refresh failed: HTTP %d", resp.StatusCode)
+	}
+
+	var tokenResp F5Token
+	if err := decodeJSON(resp.Body, &tokenResp); err != nil {
+		logger.Error("[f5api] failed to decode token refresh response",
+			slog.String("host", host),
+			slog.Any("error", err))
+		return fmt.Errorf("failed to decode token refresh response: %w", err)
+	}
+
+	expMicros := tokenResp.Token.ExpirationMicros
+	exp := time.Now().Add(9 * time.Hour)
+	if expMicros > 0 {
+		exp = time.UnixMicro(expMicros)
+	}
+
+	newToken := tokenResp.Token.Token
+
+	m.mu.Lock()
+	m.sessionToken = newToken
+	m.tokenExpires = exp
+	m.mu.Unlock()
+
+	logger.Debug("[f5api] token refreshed successfully",
+		slog.String("host", host),
+		slog.String("token", newToken),
+		slog.Time("expires_at", exp))
+
+	return nil
 }
 
 // -----------------------------
