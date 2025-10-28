@@ -33,7 +33,7 @@ Prometheus passes the target F5 device via a `target` query parameter on each sc
 
 Example:
 ```bash
-./f5ltm_exporter   --f5-user admin   --f5-pass secret   --host 0.0.0.0   --port 9143
+./f5ltm_exporter   -f5-user admin   -f5-pass secret   -host 0.0.0.0   --port 9143
 ```
 
 Then open:
