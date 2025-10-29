@@ -51,6 +51,11 @@ type F5Token struct {
 	} `json:"token"`
 }
 
+type F5RefreshResponse struct {
+	Name             string `json:"name"`
+	ExpirationMicros int64  `json:"expirationMicros"`
+}
+
 // -----------------------------
 // Structs for Pool Stats
 // -----------------------------
@@ -213,8 +218,9 @@ func (m *Model) getToken() (string, error) {
 	return newToken, nil
 }
 
-// refreshToken attempts to validate and refresh an existing token using Basic Auth.
-// If successful, updates expiry; otherwise, returns an error.
+// refreshToken validates and refreshes an existing token using Basic Auth.
+// If successful, it updates the cached expiry time.
+// If invalid or expired, it returns an error, and getToken() will fall back to login.
 func (m *Model) refreshToken(token string) error {
 	logger := m.Logger
 	host := m.Host
@@ -240,8 +246,13 @@ func (m *Model) refreshToken(token string) error {
 		return fmt.Errorf("token refresh failed: HTTP %d", resp.StatusCode)
 	}
 
-	var tokenResp F5Token
-	if err := decodeJSON(resp.Body, &tokenResp); err != nil {
+	// The refresh endpoint returns a flat structure (not nested like /authn/login)
+	var refreshResp struct {
+		Name             string `json:"name"`
+		ExpirationMicros int64  `json:"expirationMicros"`
+	}
+
+	if err := decodeJSON(resp.Body, &refreshResp); err != nil {
 		logger.Error("[f5api] failed to decode token refresh response",
 			slog.String("host", host),
 			slog.String("token", token),
@@ -249,22 +260,19 @@ func (m *Model) refreshToken(token string) error {
 		return fmt.Errorf("failed to decode token refresh response: %w", err)
 	}
 
-	expMicros := tokenResp.Token.ExpirationMicros
 	exp := time.Now().Add(9 * time.Hour)
-	if expMicros > 0 {
-		exp = time.UnixMicro(expMicros)
+	if refreshResp.ExpirationMicros > 0 {
+		exp = time.UnixMicro(refreshResp.ExpirationMicros)
 	}
 
-	newToken := tokenResp.Token.Token
-
 	m.mu.Lock()
-	m.sessionToken = newToken
-	m.tokenExpires = exp
+	m.sessionToken = token // token ID stays the same
+	m.tokenExpires = exp   // update cached expiry
 	m.mu.Unlock()
 
 	logger.Debug("[f5api] token refreshed successfully",
 		slog.String("host", host),
-		slog.String("token", newToken),
+		slog.String("token", token),
 		slog.Time("expires_at", exp))
 
 	return nil
