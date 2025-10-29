@@ -19,11 +19,21 @@ func Handler(w http.ResponseWriter, r *http.Request, f5 *f5api.Model, logger *sl
 
 	// Set F5 target for this scrape
 	f5.Host = target
-
 	metrics := createMetrics()
 
+	// --- Authenticate ---
+	token, err := f5.Login()
+	if err != nil {
+		http.Error(w, "Authentication failed", http.StatusInternalServerError)
+		logger.Error("F5 authentication failed",
+			slog.String("target", target),
+			slog.Any("error", err))
+		return
+	}
+	defer f5.Logout(token)
+
 	// --- Collect pool stats ---
-	if err := collectPoolStats(f5, metrics, logger); err != nil {
+	if err := collectPoolStats(f5, token, metrics, logger); err != nil {
 		http.Error(w, "Failed to collect pool stats", http.StatusInternalServerError)
 		logger.Error("Failed to collect pool stats",
 			slog.String("target", target),
@@ -32,7 +42,7 @@ func Handler(w http.ResponseWriter, r *http.Request, f5 *f5api.Model, logger *sl
 	}
 
 	// --- Collect sync status ---
-	if err := collectSyncStatus(f5, metrics, logger); err != nil {
+	if err := collectSyncStatus(f5, token, metrics, logger); err != nil {
 		http.Error(w, "Failed to collect sync status", http.StatusInternalServerError)
 		logger.Error("Failed to collect sync status",
 			slog.String("target", target),
@@ -44,8 +54,9 @@ func Handler(w http.ResponseWriter, r *http.Request, f5 *f5api.Model, logger *sl
 	promhttp.HandlerFor(metrics.Registry, promhttp.HandlerOpts{}).ServeHTTP(w, r)
 }
 
-func collectPoolStats(f5 *f5api.Model, metrics *Metrics, logger *slog.Logger) error {
-	stats, err := f5.GetPoolStats()
+// collectPoolStats retrieves and populates pool metrics using a provided token.
+func collectPoolStats(f5 *f5api.Model, token string, metrics *Metrics, logger *slog.Logger) error {
+	stats, err := f5.GetPoolStats(token)
 	if err != nil {
 		logger.Error("Failed to fetch pool stats", slog.Any("error", err))
 		return err
@@ -54,8 +65,9 @@ func collectPoolStats(f5 *f5api.Model, metrics *Metrics, logger *slog.Logger) er
 	return nil
 }
 
-func collectSyncStatus(f5 *f5api.Model, metrics *Metrics, logger *slog.Logger) error {
-	status, err := f5.GetSyncStatus()
+// collectSyncStatus retrieves and populates sync status metrics using a provided token.
+func collectSyncStatus(f5 *f5api.Model, token string, metrics *Metrics, logger *slog.Logger) error {
+	status, err := f5.GetSyncStatus(token)
 	if err != nil {
 		logger.Error("Failed to fetch sync status", slog.Any("error", err))
 		return err

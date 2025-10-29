@@ -11,7 +11,6 @@ import (
 	"net/http"
 	"os"
 	"strconv"
-	"sync"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -28,11 +27,8 @@ var (
 )
 
 func main() {
-
 	flag.Parse()
 	logger := logging.NewWithOptions(*flagLogFormat, *flagLogLevel)
-
-	// Make it the global default for slog.Default()
 	slog.SetDefault(logger)
 
 	if *flagF5User == "" || *flagF5Pass == "" {
@@ -41,17 +37,11 @@ func main() {
 		os.Exit(1)
 	}
 
-	cache := &targetCache{
-		user:   *flagF5User,
-		pass:   *flagF5Pass,
-		models: make(map[string]*f5api.Model),
-	}
-
 	address := net.JoinHostPort(*flagHost, strconv.Itoa(*flagPort))
-	startServer(address, cache, logger)
+	startServer(address, logger)
 }
 
-func startServer(address string, cache *targetCache, logger *slog.Logger) {
+func startServer(address string, logger *slog.Logger) {
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("/probe", func(w http.ResponseWriter, r *http.Request) {
@@ -62,7 +52,18 @@ func startServer(address string, cache *targetCache, logger *slog.Logger) {
 			return
 		}
 
-		f5 := cache.getOrCreate(target, logger)
+		// Create a fresh F5 API client for this target/scrape
+		f5 := &f5api.Model{
+			User:            *flagF5User,
+			Pass:            *flagF5Pass,
+			Host:            target,
+			Port:            "443",
+			MaxRetries:      3,
+			RetryDelay:      500 * time.Millisecond,
+			InsecureSkipTLS: *flagTLSSkipVerify,
+			Logger:          logger,
+		}
+
 		prober.Handler(w, r, f5, logger)
 	})
 
@@ -79,38 +80,4 @@ func startServer(address string, cache *targetCache, logger *slog.Logger) {
 		logger.Error("Failed to start HTTP server", slog.Any("error", err))
 		os.Exit(1)
 	}
-}
-
-// -----------------------------
-// Target cache management
-// -----------------------------
-
-type targetCache struct {
-	mu     sync.Mutex
-	models map[string]*f5api.Model
-	user   string
-	pass   string
-}
-
-func (c *targetCache) getOrCreate(host string, logger *slog.Logger) *f5api.Model {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	if m, ok := c.models[host]; ok {
-		return m
-	}
-
-	m := &f5api.Model{
-		User:            c.user,
-		Pass:            c.pass,
-		Host:            host,
-		Port:            "443",
-		MaxRetries:      3,
-		RetryDelay:      500 * time.Millisecond,
-		InsecureSkipTLS: *flagTLSSkipVerify,
-		Logger:          logger,
-	}
-
-	c.models[host] = m
-	return m
 }

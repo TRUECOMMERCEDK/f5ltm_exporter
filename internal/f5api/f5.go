@@ -11,39 +11,34 @@ import (
 	"math/rand"
 	"net/http"
 	"strings"
-	"sync"
 	"time"
 )
 
 const (
-	defaultTimeout  = 10 * time.Second
-	loginURL        = "/mgmt/shared/authn/login"
-	refreshTokenURL = "/mgmt/shared/authz/tokens/" // appended with token ID
-	poolStatsURL    = "/mgmt/tm/ltm/pool/stats"
-	syncStatusURL   = "/mgmt/tm/cm/sync-status"
-	tokenGrace      = 2 * time.Minute // renew a little before expiry
+	defaultTimeout = 10 * time.Second
+	loginURL       = "/mgmt/shared/authn/login"
+	logoutURL      = "/mgmt/shared/authz/tokens/"
+	poolStatsURL   = "/mgmt/tm/ltm/pool/stats"
+	syncStatusURL  = "/mgmt/tm/cm/sync-status"
 )
 
+// -----------------------------
+// Model
+// -----------------------------
 type Model struct {
-	User       string
-	Pass       string
-	Host       string
-	Port       string
-	MaxRetries int
-	RetryDelay time.Duration
-
+	User            string
+	Pass            string
+	Host            string
+	Port            string
+	MaxRetries      int
+	RetryDelay      time.Duration
 	InsecureSkipTLS bool
 	Logger          *slog.Logger
-
-	mu           sync.Mutex
-	sessionToken string
-	tokenExpires time.Time
 }
 
 // -----------------------------
 // Structs for Token Handling
 // -----------------------------
-
 type F5Token struct {
 	Token struct {
 		Token            string `json:"token"`
@@ -51,15 +46,9 @@ type F5Token struct {
 	} `json:"token"`
 }
 
-type F5RefreshResponse struct {
-	Name             string `json:"name"`
-	ExpirationMicros int64  `json:"expirationMicros"`
-}
-
 // -----------------------------
 // Structs for Pool Stats
 // -----------------------------
-
 type PoolStats struct {
 	Entries map[string]Entry `json:"entries"`
 }
@@ -96,7 +85,6 @@ type StatMessage struct {
 // -----------------------------
 // Structs for Sync Status
 // -----------------------------
-
 type SyncStatusResponse struct {
 	Entries map[string]SyncEntry `json:"entries"`
 }
@@ -112,59 +100,13 @@ type SyncEntry struct {
 }
 
 // -----------------------------
-// Token Lifecycle (lazy refresh)
+// Token Lifecycle
 // -----------------------------
 
-// getToken logs in if there is no valid token or if the old one is near expiry.
-// It emits structured logs for reuse vs login behavior.
-// getToken returns a valid token.
-// It reuses the existing one if valid, attempts refresh when near expiry,
-// and performs a full login if refresh fails or no token exists.
-func (m *Model) getToken() (string, error) {
+// Login creates a new token and returns its value.
+func (m *Model) Login() (string, error) {
 	logger := m.Logger
 	host := m.Host
-
-	m.mu.Lock()
-	token := m.sessionToken
-	expiry := m.tokenExpires
-	valid := token != "" && time.Now().Before(expiry.Add(-tokenGrace))
-	m.mu.Unlock()
-
-	if valid {
-		logger.Debug("[f5api] reusing cached token",
-			slog.String("host", host),
-			slog.String("token", token),
-			slog.Duration("expires_in", time.Until(expiry)))
-		return token, nil
-	}
-
-	// Attempt refresh if token exists but is expired or near expiry
-	if token != "" {
-		logger.Info("[f5api] attempting token refresh",
-			slog.String("host", host),
-			slog.String("token", token))
-
-		if err := m.refreshToken(token); err == nil {
-			m.mu.Lock()
-			refreshed := m.sessionToken
-			newExp := m.tokenExpires
-			m.mu.Unlock()
-
-			logger.Debug("[f5api] token refreshed successfully",
-				slog.String("host", host),
-				slog.String("token", refreshed),
-				slog.Duration("expires_in", time.Until(newExp)))
-			return refreshed, nil
-		}
-
-		logger.Warn("[f5api] token refresh failed, performing full login",
-			slog.String("host", host),
-			slog.String("token", token))
-	}
-
-	// Full login fallback
-	logger.Info("[f5api] performing new login",
-		slog.String("host", host))
 
 	payload := map[string]string{
 		"username":          m.User,
@@ -175,119 +117,65 @@ func (m *Model) getToken() (string, error) {
 
 	resp, err := m.doRequest("POST", m.apiURL(loginURL), "application/json", bytes.NewReader(data), "")
 	if err != nil {
-		logger.Error("[f5api] authentication request failed",
-			slog.String("host", host),
-			slog.Any("error", err))
-		return "", fmt.Errorf("authentication request failed: %w", err)
+		logger.Error("[f5api] login request failed",
+			slog.String("host", host), slog.Any("error", err))
+		return "", fmt.Errorf("login request failed: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		logger.Error("[f5api] authentication failed",
-			slog.String("host", host),
-			slog.Int("status_code", resp.StatusCode))
-		return "", fmt.Errorf("authentication failed: HTTP %d", resp.StatusCode)
+		logger.Error("[f5api] login failed",
+			slog.String("host", host), slog.Int("status", resp.StatusCode))
+		return "", fmt.Errorf("login failed: HTTP %d", resp.StatusCode)
 	}
 
 	var tokenResp F5Token
 	if err := decodeJSON(resp.Body, &tokenResp); err != nil {
-		logger.Error("[f5api] failed to parse auth response",
-			slog.String("host", host),
-			slog.Any("error", err))
-		return "", fmt.Errorf("failed to parse auth response: %w", err)
+		logger.Error("[f5api] failed to parse login response",
+			slog.String("host", host), slog.Any("error", err))
+		return "", fmt.Errorf("failed to parse login response: %w", err)
 	}
 
-	expMicros := tokenResp.Token.ExpirationMicros
-	exp := time.Now().Add(9 * time.Hour)
-	if expMicros > 0 {
-		exp = time.UnixMicro(expMicros)
-	}
-
-	newToken := tokenResp.Token.Token
-
-	m.mu.Lock()
-	m.sessionToken = newToken
-	m.tokenExpires = exp
-	m.mu.Unlock()
-
-	logger.Debug("[f5api] new token acquired",
+	token := tokenResp.Token.Token
+	logger.Debug("[f5api] token created",
 		slog.String("host", host),
-		slog.String("token", newToken),
-		slog.Time("expires_at", exp))
-
-	return newToken, nil
+		slog.String("token", token))
+	return token, nil
 }
 
-// refreshToken validates and refreshes an existing token using Basic Auth.
-// If successful, it updates the cached expiry time.
-// If invalid or expired, it returns an error, and getToken() will fall back to login.
-func (m *Model) refreshToken(token string) error {
+// Logout deletes a token on the F5 device.
+func (m *Model) Logout(token string) {
 	logger := m.Logger
 	host := m.Host
 
-	url := m.apiURL(refreshTokenURL + token)
+	url := m.apiURL(logoutURL + token)
 	authHeader := "Basic " + basicAuth(m.User, m.Pass)
 
-	resp, err := m.doRequest("GET", url, "", nil, authHeader)
+	resp, err := m.doRequest("DELETE", url, "", nil, authHeader)
 	if err != nil {
-		logger.Error("[f5api] token refresh request failed",
-			slog.String("host", host),
-			slog.String("token", token),
-			slog.Any("error", err))
-		return fmt.Errorf("token refresh request failed: %w", err)
+		logger.Warn("[f5api] logout request failed",
+			slog.String("host", host), slog.String("token", token), slog.Any("error", err))
+		return
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		logger.Warn("[f5api] token refresh failed",
-			slog.String("host", host),
-			slog.String("token", token),
-			slog.Int("status_code", resp.StatusCode))
-		return fmt.Errorf("token refresh failed: HTTP %d", resp.StatusCode)
+		logger.Warn("[f5api] logout returned non-200",
+			slog.String("host", host), slog.String("token", token),
+			slog.Int("status", resp.StatusCode))
+		return
 	}
 
-	// The refresh endpoint returns a flat structure (not nested like /authn/login)
-	var refreshResp struct {
-		Name             string `json:"name"`
-		ExpirationMicros int64  `json:"expirationMicros"`
-	}
-
-	if err := decodeJSON(resp.Body, &refreshResp); err != nil {
-		logger.Error("[f5api] failed to decode token refresh response",
-			slog.String("host", host),
-			slog.String("token", token),
-			slog.Any("error", err))
-		return fmt.Errorf("failed to decode token refresh response: %w", err)
-	}
-
-	exp := time.Now().Add(9 * time.Hour)
-	if refreshResp.ExpirationMicros > 0 {
-		exp = time.UnixMicro(refreshResp.ExpirationMicros)
-	}
-
-	m.mu.Lock()
-	m.sessionToken = token // token ID stays the same
-	m.tokenExpires = exp   // update cached expiry
-	m.mu.Unlock()
-
-	logger.Debug("[f5api] token refreshed successfully",
+	logger.Debug("[f5api] token deleted",
 		slog.String("host", host),
-		slog.String("token", token),
-		slog.Time("expires_at", exp))
-
-	return nil
+		slog.String("token", token))
 }
 
 // -----------------------------
 // API Methods
 // -----------------------------
 
-func (m *Model) GetPoolStats() (PoolStats, error) {
-	token, err := m.getToken()
-	if err != nil {
-		return PoolStats{}, err
-	}
-
+func (m *Model) GetPoolStats(token string) (PoolStats, error) {
 	resp, err := m.doRequest("GET", m.apiURL(poolStatsURL), "", nil, token)
 	if err != nil {
 		return PoolStats{}, fmt.Errorf("pool stats request failed: %w", err)
@@ -305,12 +193,7 @@ func (m *Model) GetPoolStats() (PoolStats, error) {
 	return stats, nil
 }
 
-func (m *Model) GetSyncStatus() (int, error) {
-	token, err := m.getToken()
-	if err != nil {
-		return 0, err
-	}
-
+func (m *Model) GetSyncStatus(token string) (int, error) {
 	resp, err := m.doRequest("GET", m.apiURL(syncStatusURL), "", nil, token)
 	if err != nil {
 		return 0, fmt.Errorf("sync status request failed: %w", err)
@@ -350,15 +233,12 @@ func (m *Model) doRequest(method, url, contentType string, body io.Reader, authH
 	client := &http.Client{
 		Timeout: defaultTimeout,
 		Transport: &http.Transport{
-			TLSClientConfig: &tls.Config{
-				InsecureSkipVerify: m.InsecureSkipTLS,
-			},
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: m.InsecureSkipTLS},
 		},
 	}
 
 	var lastErr error
 	backoff := m.RetryDelay
-
 	var bodyBytes []byte
 	if body != nil {
 		bodyBytes, _ = io.ReadAll(body)
@@ -381,7 +261,6 @@ func (m *Model) doRequest(method, url, contentType string, body io.Reader, authH
 		}
 
 		if authHeader != "" {
-			// Detect Basic vs token header
 			if strings.HasPrefix(authHeader, "Basic ") {
 				req.Header.Set("Authorization", authHeader)
 			} else {
@@ -398,7 +277,6 @@ func (m *Model) doRequest(method, url, contentType string, body io.Reader, authH
 			resp.Body.Close()
 		}
 		lastErr = err
-
 		if attempt < m.MaxRetries {
 			jitter := time.Duration(float64(backoff) * (0.5 + rand.Float64()*0.5))
 			time.Sleep(jitter)
@@ -411,11 +289,7 @@ func (m *Model) doRequest(method, url, contentType string, body io.Reader, authH
 // -----------------------------
 // Helpers
 // -----------------------------
-
 func (m *Model) apiURL(path string) string {
-	if m.Host == "" {
-		panic("f5api.Model.Host is empty — cannot build API URL")
-	}
 	return fmt.Sprintf("https://%s:%s%s", m.Host, m.Port, path)
 }
 
