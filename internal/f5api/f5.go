@@ -128,6 +128,7 @@ func (m *Model) getToken() (string, error) {
 	if valid {
 		logger.Debug("[f5api] reusing cached token",
 			slog.String("host", host),
+			slog.String("token", token),
 			slog.Duration("expires_in", time.Until(expiry)))
 		return token, nil
 	}
@@ -135,7 +136,8 @@ func (m *Model) getToken() (string, error) {
 	// Attempt refresh if token exists but is expired or near expiry
 	if token != "" {
 		logger.Info("[f5api] attempting token refresh",
-			slog.String("host", host))
+			slog.String("host", host),
+			slog.String("token", token))
 
 		if err := m.refreshToken(token); err == nil {
 			m.mu.Lock()
@@ -145,12 +147,14 @@ func (m *Model) getToken() (string, error) {
 
 			logger.Debug("[f5api] token refreshed successfully",
 				slog.String("host", host),
+				slog.String("token", refreshed),
 				slog.Duration("expires_in", time.Until(newExp)))
 			return refreshed, nil
 		}
 
 		logger.Warn("[f5api] token refresh failed, performing full login",
-			slog.String("host", host))
+			slog.String("host", host),
+			slog.String("token", token))
 	}
 
 	// Full login fallback
@@ -203,6 +207,7 @@ func (m *Model) getToken() (string, error) {
 
 	logger.Debug("[f5api] new token acquired",
 		slog.String("host", host),
+		slog.String("token", newToken),
 		slog.Time("expires_at", exp))
 
 	return newToken, nil
@@ -221,6 +226,7 @@ func (m *Model) refreshToken(token string) error {
 	if err != nil {
 		logger.Error("[f5api] token refresh request failed",
 			slog.String("host", host),
+			slog.String("token", token),
 			slog.Any("error", err))
 		return fmt.Errorf("token refresh request failed: %w", err)
 	}
@@ -229,6 +235,7 @@ func (m *Model) refreshToken(token string) error {
 	if resp.StatusCode != http.StatusOK {
 		logger.Warn("[f5api] token refresh failed",
 			slog.String("host", host),
+			slog.String("token", token),
 			slog.Int("status_code", resp.StatusCode))
 		return fmt.Errorf("token refresh failed: HTTP %d", resp.StatusCode)
 	}
@@ -237,6 +244,7 @@ func (m *Model) refreshToken(token string) error {
 	if err := decodeJSON(resp.Body, &tokenResp); err != nil {
 		logger.Error("[f5api] failed to decode token refresh response",
 			slog.String("host", host),
+			slog.String("token", token),
 			slog.Any("error", err))
 		return fmt.Errorf("failed to decode token refresh response: %w", err)
 	}
