@@ -121,7 +121,12 @@ func (m *Model) Login() (string, error) {
 			slog.String("host", host), slog.Any("error", err))
 		return "", fmt.Errorf("login request failed: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func(Body io.ReadCloser) {
+		err := Body.Close()
+		if err != nil {
+
+		}
+	}(resp.Body)
 
 	if resp.StatusCode != http.StatusOK {
 		logger.Error("[f5api] login failed",
@@ -157,7 +162,12 @@ func (m *Model) Logout(token string) {
 			slog.String("host", host), slog.String("token", token), slog.Any("error", err))
 		return
 	}
-	defer resp.Body.Close()
+	defer func(Body io.ReadCloser) {
+		err := Body.Close()
+		if err != nil {
+
+		}
+	}(resp.Body)
 
 	if resp.StatusCode != http.StatusOK {
 		logger.Warn("[f5api] logout returned non-200",
@@ -180,7 +190,12 @@ func (m *Model) GetPoolStats(token string) (PoolStats, error) {
 	if err != nil {
 		return PoolStats{}, fmt.Errorf("pool stats request failed: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func(Body io.ReadCloser) {
+		err := Body.Close()
+		if err != nil {
+
+		}
+	}(resp.Body)
 
 	if resp.StatusCode != http.StatusOK {
 		return PoolStats{}, fmt.Errorf("failed to get pool stats: HTTP %d", resp.StatusCode)
@@ -198,7 +213,12 @@ func (m *Model) GetSyncStatus(token string) (int, error) {
 	if err != nil {
 		return 0, fmt.Errorf("sync status request failed: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func(Body io.ReadCloser) {
+		err := Body.Close()
+		if err != nil {
+
+		}
+	}(resp.Body)
 
 	if resp.StatusCode != http.StatusOK {
 		return 0, fmt.Errorf("failed to get sync status: HTTP %d", resp.StatusCode)
@@ -274,7 +294,10 @@ func (m *Model) doRequest(method, url, contentType string, body io.Reader, authH
 		}
 
 		if resp != nil {
-			resp.Body.Close()
+			err := resp.Body.Close()
+			if err != nil {
+				return nil, err
+			}
 		}
 		lastErr = err
 		if attempt < m.MaxRetries {

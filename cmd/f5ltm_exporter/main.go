@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"f5ltm_exporter/internal/f5api"
 	"f5ltm_exporter/internal/logging"
 	"f5ltm_exporter/prober"
@@ -43,7 +44,10 @@ func main() {
 		slog.String("log_level", *flagLogLevel))
 
 	if *flagF5User == "" || *flagF5Pass == "" {
-		fmt.Fprintln(os.Stderr, "Error: --f5-user and --f5-pass are required")
+		_, err := fmt.Fprintln(os.Stderr, "Error: --f5-user and --f5-pass are required")
+		if err != nil {
+			return
+		}
 		flag.Usage()
 		os.Exit(1)
 	}
@@ -81,10 +85,13 @@ func startServer(address string, logger *slog.Logger) {
 
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]string{
+		err := json.NewEncoder(w).Encode(map[string]string{
 			"status":  "ok",
 			"version": release,
 		})
+		if err != nil {
+			return
+		}
 	})
 
 	server := &http.Server{
@@ -120,7 +127,7 @@ func startServer(address string, logger *slog.Logger) {
 		slog.String("bind_address", address),
 		slog.String("version", release))
 
-	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+	if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		logger.Error("HTTP server error", slog.Any("error", err))
 		os.Exit(1)
 	}
