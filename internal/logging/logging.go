@@ -21,10 +21,6 @@ func NewWithOptions(format, level string) *slog.Logger {
 	}
 
 	logger := slog.New(handler)
-	logger.Info("logger initialized",
-		slog.String("format", format),
-		slog.String("level", strings.ToLower(level)))
-
 	return logger
 }
 
