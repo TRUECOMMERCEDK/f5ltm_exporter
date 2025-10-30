@@ -50,7 +50,7 @@ func Handler(w http.ResponseWriter, r *http.Request, f5 *f5api.Model, logger *sl
 		return
 	}
 
-	logger.Info("F5 scrape successful", slog.String("target", target))
+	logger.Debug("F5 scrape successful", slog.String("target", target))
 	promhttp.HandlerFor(metrics.Registry, promhttp.HandlerOpts{}).ServeHTTP(w, r)
 }
 
