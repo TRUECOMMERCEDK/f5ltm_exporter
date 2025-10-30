@@ -27,7 +27,7 @@ var (
 	flagF5User        = flag.String("f5-user", "", "Username for F5 LTM authentication (required)")
 	flagF5Pass        = flag.String("f5-pass", "", "Password for F5 LTM authentication (required)")
 	flagTLSSkipVerify = flag.Bool("tls-skip-verify", false, "Skip TLS certificate verification (use only for testing)")
-	flagLogFormat     = flag.String("log-format", "json", "Log format: json or text")
+	flagLogFormat     = flag.String("log-format", "text", "Log format: json or text")
 	flagLogLevel      = flag.String("log-level", "info", "Log level: debug, info, warn, error")
 )
 
