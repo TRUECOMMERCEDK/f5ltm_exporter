@@ -1,13 +1,17 @@
 # .goreleaser.yml
 project_name: f5ltm_exporter
 builds:
-  - env: [CGO_ENABLED=0]
+  - id: "f5ltm_exporter"
+    env: [CGO_ENABLED=0]
+    ldflags:
+      - -s -w
+      - -X main.release={{.Version}}-{{.Commit}}
     goos:
       - linux
       - windows
     goarch:
       - amd64
-    id: "f5ltm_exporter"
+
     dir: .
     main: ./cmd/f5ltm_exporter/
     binary: f5ltmexporterserver

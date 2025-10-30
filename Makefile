@@ -1,14 +1,13 @@
-.PHONY: build cover deploy start test test-integration
+.PHONY: build coverstart test test-integration
+
+VERSION := $(shell git describe --tags --always --dirty)
+LDFLAGS := -s -w -X main.release=$(VERSION)
 
 build:
-	docker build -t f5ltmexporter .
+	go build -ldflags "$(LDFLAGS)" -o f5ltm_exporter .
 
 cover:
 	go tool cover -html=cover.out
-
-deploy:
-	docker tag f5ltmexporter:latest truecommercedk/f5ltmexporter:latest
-	docker push truecommercedk/f5ltmexporter:latest
 
 start:
 	go run cmd/f5ltm_exporter/*.go
