@@ -5,7 +5,7 @@ builds:
     env: [CGO_ENABLED=0]
     ldflags:
       - -s -w
-      - -X main.release={{.Version}}-{{.Commit}}
+      - -X main.release={{.Version}}-{{.ShortCommit}}-{{.Date}}
     goos:
       - linux
       - windows
