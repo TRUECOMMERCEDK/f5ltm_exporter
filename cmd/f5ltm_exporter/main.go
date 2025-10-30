@@ -124,8 +124,7 @@ func startServer(address string, logger *slog.Logger) {
 	}()
 
 	logger.Info("HTTP server listening",
-		slog.String("bind_address", address),
-		slog.String("version", release))
+		slog.String("bind_address", address))
 
 	if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		logger.Error("HTTP server error", slog.Any("error", err))
