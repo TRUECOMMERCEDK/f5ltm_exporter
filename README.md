@@ -12,8 +12,9 @@ Prometheus passes the target F5 device via a `target` query parameter on each sc
 ## Features
 - Collects **LTM pool statistics** and **sync-status**
 - Supports multiple F5 devices dynamically (`?target=` parameter)
-- Reuses API tokens automatically (no re-login storms)
-- TLS support with `InsecureSkipVerify` for lab/test use
+- Performs a **fresh login per scrape** and deletes the token immediately after use  
+  (no token caching, preventing “maximum active tokens” errors)
+- TLS support with configurable verification via `--tls-skip-verify`
 - Exposes standard endpoints:
     - `/probe?target=<F5-IP>` – scrape endpoint used by Prometheus
     - `/metrics` – exporter self-metrics
@@ -23,15 +24,15 @@ Prometheus passes the target F5 device via a `target` query parameter on each sc
 
 ## Command-Line Flags
 
-| Flag                | Description                   | Default |
-|---------------------|-------------------------------|-------|
-| `--host`            | Address to bind the exporter  | `0.0.0.0` |
-| `--port`            | Port number to bind the exporter | `9143` |
-| `--f5-user`         | F5 username (required)        | –     |
-| `--f5-pass`         | F5 password (required)        | –     |
-| `--tls-skip-verify` | Skip TLS verification | `false` |
-| `--log-format`      | `json` | Log format: `json` or `text` |
-| `--log-level`       | `info` | Log level: `debug`, `info`, `warn`, or `error` |
+| Flag                | Description                                   | Default     |
+|---------------------|-----------------------------------------------|-------------|
+| `--host`            | Address to bind the exporter                  | `127.0.0.1` |
+| `--port`            | Port number to bind the exporter              | `9143`      |
+| `--f5-user`         | F5 username (required)                        | –           |
+| `--f5-pass`         | F5 password (required)                        | –           |
+| `--tls-skip-verify` | Skip TLS verification (use only for testing)  | `false`     |
+| `--log-format`      | Log format: `json` or `text`                  | `json`      |
+| `--log-level`       | Log level: `debug`, `info`, `warn`, or `error`| `info`      |
 
 Example:
 ```bash
@@ -67,8 +68,8 @@ http://<exporter-host>:9143/probe?target=10.0.0.1
 ---
 
 ## Security Notes
-- iControl REST uses HTTPS; this exporter skips certificate verification by default (`InsecureSkipVerify=true`).  
-  You can harden it later with proper CA handling.
+- iControl REST uses HTTPS; certificate verification can be disabled with --tls-skip-verify (for testing only).
+- The exporter performs a **login and logout per scrape**, ensuring no long-lived sessions remain active.
 - Credentials are passed via flags; consider using environment variables or a secrets manager for production.
 
 ---
@@ -77,16 +78,16 @@ http://<exporter-host>:9143/probe?target=10.0.0.1
 ```
 Prometheus
    │
-   ├── /probe?target=f5-a → token cached in memory for "f5-a"
-   ├── /probe?target=f5-b → token cached separately
+   ├── /probe?target=f5-a → Login → Scrape → Logout
+   ├── /probe?target=f5-b → Login → Scrape → Logout
    └── /metrics → exporter self-metrics
 ```
 
-Each F5 host has:
-- Independent login and cached token
-- Automatic token reuse until expiry (~10h)
-- On-demand refresh when expired
-
+Each scrape:
+- Creates a new short-lived token
+- Collects pool and sync metrics
+- Logs out and deletes the token
+No tokens are cached or reused between scrapes.
 ---
 
 ## Example Output
@@ -113,12 +114,18 @@ After=network.target
 
 [Service]
 User=f5ltm
-ExecStart=/opt/f5ltm_exporter/f5ltm_exporter   --f5-user=admin   --f5-pass=secret
+ExecStart=/opt/f5ltm_exporter/f5ltm_exporter --f5-user=admin --f5-pass=secret
 Restart=always
 
 [Install]
 WantedBy=multi-user.target
 ```
+## Performance Considerations
+Since each scrape performs a **login and logout**, it will add slight latency (typically ~200–400 ms per scrape).
+To avoid excessive load on the F5 device:
+- Use a scrape interval of **30–60 seconds**.
+- Avoid overly frequent multi-target scrapes in large clusters.
+- You can run multiple exporters in parallel if needed for scaling.
 
 ---
 
