@@ -4,7 +4,7 @@ VERSION := $(shell git describe --tags --always --dirty)
 LDFLAGS := -s -w -X main.release=$(VERSION)
 
 build:
-	go build -ldflags "$(LDFLAGS)" -o f5ltm_exporter ./cmd/f5ltm_exporter
+	go build -ldflags "$(LDFLAGS)" -o f5ltmexporterserver ./cmd/f5ltm_exporter
 
 cover:
 	go tool cover -html=cover.out
